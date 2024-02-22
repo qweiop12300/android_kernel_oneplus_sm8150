@@ -55,6 +55,16 @@ jobs:
         git rev-list --count HEAD
         echo "VERSION=$(expr $(git rev-list --count HEAD) + 10200)" >> $GITHUB_OUTPUT
         cd ..
+    - name: Android kernel build
+      uses: lemniskett/android-kernel-actions@master
+      id: build
+      env:
+        NAME: msmnile
+      with:
+        arch: arm64
+        compiler: clang/14
+        defconfig: $KERNEL_DEFCONFIG
+        image: Image
     - name: Build Kernel
       run: |
        export PATH=$(pwd)/clang/bin/:$(pwd)/aarch64/bin/:$PATH
