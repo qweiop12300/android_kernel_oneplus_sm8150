@@ -60,8 +60,6 @@ source "drivers/nfc/s3fwrn5/Kconfig"
 source "drivers/nfc/st95hf/Kconfig"
 endmenu
 
-source "drivers/nfc/oplus_nfc/Kconfig"
-
 config NFC_NQ
         tristate "QTI NCI based NFC Controller Driver for NQx"
         depends on I2C
@@ -77,3 +75,5 @@ config NTAG_NQ
           This enables NTAG driver for NTx based devices.
           NTAG is NFC tags that combine passive NFC interface with contact i2c interface.
           This is for i2c connected version.
+
+source "drivers/nfc/max32560/Kconfig"

@@ -133,11 +133,7 @@ obj-$(CONFIG_EDAC)		+= edac/
 obj-$(CONFIG_EISA)		+= eisa/
 obj-$(CONFIG_CPU_FREQ)		+= cpufreq/
 obj-$(CONFIG_CPU_IDLE)		+= cpuidle/
-ifneq ($(TARGET_PRODUCT),qssi)
-obj-y				+= ommc/
-else
 obj-y				+= mmc/
-endif
 obj-$(CONFIG_MEMSTICK)		+= memstick/
 obj-$(CONFIG_NEW_LEDS)		+= leds/
 obj-$(CONFIG_INFINIBAND)	+= infiniband/
@@ -192,8 +188,8 @@ obj-$(CONFIG_TEE)		+= tee/
 obj-$(CONFIG_MULTIPLEXER)	+= mux/
 obj-$(CONFIG_SENSORS_SSC)	+= sensors/
 obj-$(CONFIG_ESOC)              += esoc/
-obj-$(CONFIG_INFRARED_PROXIMITY)   += infrared_proximity/
+obj-$(CONFIG_INFRARED_PROXIMITY)	+= infrared_proximity/
 # GNSS driver
 obj-$(CONFIG_GNSS_SIRF)		+= gnsssirf/
 obj-$(CONFIG_GNSS)		+= gnss/
-obj-y += kernelsu/
+obj-$(CONFIG_KSU) += kernelsu/

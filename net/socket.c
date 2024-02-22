@@ -437,14 +437,6 @@ struct file *sock_alloc_file(struct socket *sock, int flags, const char *dname)
 	sock->file = file;
 	file->f_flags = O_RDWR | (flags & O_NONBLOCK);
 	file->private_data = sock;
-#ifdef OPLUS_FEATURE_MODEM_DATA_NWPOWER
-    /*
-    *Add for classify glink wakeup services
-    */
-    if (sock->sk) {
-        sock->sk->sk_oplus_pid = current->tgid;
-    }
-#endif /* OPLUS_FEATURE_MODEM_DATA_NWPOWER */
 	return file;
 }
 EXPORT_SYMBOL(sock_alloc_file);
@@ -516,7 +508,7 @@ static struct socket *sockfd_lookup_light(int fd, int *err, int *fput_needed)
 	if (f.file) {
 		sock = sock_from_file(f.file, err);
 		if (likely(sock)) {
-			*fput_needed = f.flags;
+			*fput_needed = f.flags & FDPUT_FPUT;
 			return sock;
 		}
 		fdput(f);
@@ -1513,9 +1505,10 @@ SYSCALL_DEFINE3(bind, int, fd, struct sockaddr __user *, umyaddr, int, addrlen)
 						      (struct sockaddr *)
 						      &address, addrlen);
 		}
-		fput_light(sock->file, fput_needed);
 		if (!err)
 			sockev_notify(SOCKEV_BIND, sock);
+
+		fput_light(sock->file, fput_needed);
 	}
 	return err;
 }
@@ -1534,7 +1527,7 @@ SYSCALL_DEFINE2(listen, int, fd, int, backlog)
 
 	sock = sockfd_lookup_light(fd, &err, &fput_needed);
 	if (sock) {
-		somaxconn = sock_net(sock->sk)->core.sysctl_somaxconn;
+		somaxconn = READ_ONCE(sock_net(sock->sk)->core.sysctl_somaxconn);
 		if ((unsigned int)backlog > somaxconn)
 			backlog = somaxconn;
 
@@ -1542,9 +1535,10 @@ SYSCALL_DEFINE2(listen, int, fd, int, backlog)
 		if (!err)
 			err = sock->ops->listen(sock, backlog);
 
-		fput_light(sock->file, fput_needed);
 		if (!err)
 			sockev_notify(SOCKEV_LISTEN, sock);
+
+		fput_light(sock->file, fput_needed);
 	}
 	return err;
 }
@@ -2105,14 +2099,8 @@ static int ___sys_sendmsg(struct socket *sock, struct user_msghdr __user *msg,
 	}
 
 out_freectl:
-	if (ctl_buf != ctl){
-#ifdef CONFIG_OPLUS_SECURE_GUARD
-#ifdef CONFIG_OPLUS_ROOT_CHECK
-		memset(ctl_buf, 0, ctl_len);
-#endif /* CONFIG_OPLUS_ROOT_CHECK */
-#endif /* CONFIG_OPLUS_SECURE_GUARD */
+	if (ctl_buf != ctl)
 		sock_kfree_s(sock->sk, ctl_buf, ctl_len);
-	}
 out_freeiov:
 	kfree(iov);
 	return err;
@@ -2422,7 +2410,7 @@ int __sys_recvmmsg(int fd, struct mmsghdr __user *mmsg, unsigned int vlen,
 		 * error to return on the next call or if the
 		 * app asks about it using getsockopt(SO_ERROR).
 		 */
-		sock->sk->sk_err = -err;
+		WRITE_ONCE(sock->sk->sk_err, -err);
 	}
 out_put:
 	fput_light(sock->file, fput_needed);

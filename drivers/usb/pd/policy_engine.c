@@ -420,6 +420,7 @@ struct usbpd {
 	bool			peer_pr_swap;
 	bool			peer_dr_swap;
 	bool			no_usb3dp_concurrency;
+	bool			pd20_source_only;
 
 	u32			sink_caps[7];
 	int			num_sink_caps;
@@ -493,6 +494,7 @@ struct usbpd {
 };
 
 static LIST_HEAD(_usbpd);	/* useful for debugging */
+
 #ifdef VENDOR_EDIT
 static int peripheral_enabled = 1;
 int oplus_usbpd_send_svdm(u16 svid, u8 cmd, enum usbpd_svdm_cmd_type cmd_type,
@@ -566,8 +568,9 @@ static inline void start_usb_peripheral(struct usbpd *pd)
 {
 	enum plug_orientation cc = usbpd_get_plug_orientation(pd);
 	union extcon_property_value val;
+
 #ifdef OPLUS_FEATURE_CHG_BASIC
-	if(peripheral_enabled == 0) {
+	if (peripheral_enabled == 0) {
 		return;
 	}
 #endif
@@ -1421,7 +1424,10 @@ static void usbpd_set_state(struct usbpd *pd, enum usbpd_state next_state)
 			 * support up to PD 3.0; if peer is 2.0
 			 * phy_msg_received() will handle the downgrade.
 			 */
-			pd->spec_rev = USBPD_REV_30;
+			if (pd->pd20_source_only)
+				pd->spec_rev = USBPD_REV_20;
+			else
+				pd->spec_rev = USBPD_REV_30;
 
 			if (pd->pd_phy_opened) {
 				pd_phy_close();
@@ -1432,10 +1438,10 @@ static void usbpd_set_state(struct usbpd *pd, enum usbpd_state next_state)
 			phy_params.power_role = pd->current_pr;
 
 #ifndef VENDOR_EDIT
-		//if (pd->vconn_enabled)
-		//	phy_params->frame_filter_val |= FRAME_FILTER_EN_SOPI;
+			if (pd->vconn_enabled)
+				phy_params.frame_filter_val |=
+					FRAME_FILTER_EN_SOPI;
 #endif
-
 
 			ret = pd_phy_open(&phy_params);
 			if (ret) {
@@ -1672,11 +1678,13 @@ static void usbpd_set_state(struct usbpd *pd, enum usbpd_state next_state)
 
 			phy_params.data_role = pd->current_dr;
 			phy_params.power_role = pd->current_pr;
+
 #ifndef VENDOR_EDIT
-			//if (pd->vconn_enabled)
-				//phy_params.frame_filter_val |=
-					//FRAME_FILTER_EN_SOPI;
+			if (pd->vconn_enabled)
+				phy_params.frame_filter_val |=
+					FRAME_FILTER_EN_SOPI;
 #endif
+
 			ret = pd_phy_open(&phy_params);
 			if (ret) {
 				WARN_ON_ONCE(1);
@@ -1875,6 +1883,7 @@ int usbpd_send_vdm(struct usbpd *pd, u32 vdm_hdr, const u32 *vdos, int num_vdos)
 		kfree(pd->vdm_tx);
 		pd->vdm_tx = NULL;
 	}
+
 #ifdef VENDOR_EDIT
 	if (pd->current_state != PE_SRC_READY &&
 			pd->current_state != PE_SNK_READY) {
@@ -2021,6 +2030,7 @@ static void handle_vdm_rx(struct usbpd *pd, struct rx_msg *rx_msg)
 			usbpd_dbg(&pd->dev, "Discarding delayed SVDM response due to timeout\n");
 			break;
 		}
+
 		switch (cmd) {
 		case USBPD_SVDM_DISCOVER_IDENTITY:
 			kfree(pd->vdm_tx_retry);
@@ -2460,13 +2470,14 @@ static void vconn_swap(struct usbpd *pd)
 		pd->vconn_enabled = true;
 
 #ifndef VENDOR_EDIT
-		//pd_phy_update_frame_filter(FRAME_FILTER_EN_SOP |
-		//			   FRAME_FILTER_EN_SOPI |
-		//			   FRAME_FILTER_EN_HARD_RESET);
+		pd_phy_update_frame_filter(FRAME_FILTER_EN_SOP |
+					   FRAME_FILTER_EN_SOPI |
+					   FRAME_FILTER_EN_HARD_RESET);	
 #else
 		pd_phy_update_frame_filter(FRAME_FILTER_EN_SOP |
 					   FRAME_FILTER_EN_HARD_RESET);
 #endif
+
 		/*
 		 * Small delay to ensure Vconn has ramped up. This is well
 		 * below tVCONNSourceOn (100ms) so we still send PS_RDY within
@@ -2767,7 +2778,10 @@ static void usbpd_sm(struct work_struct *w)
 		 * Emarker may have negotiated down to rev 2.0.
 		 * Reset to 3.0 to begin SOP communication with sink
 		 */
-		pd->spec_rev = USBPD_REV_30;
+		if (pd->pd20_source_only)
+			pd->spec_rev = USBPD_REV_20;
+		else
+			pd->spec_rev = USBPD_REV_30;
 
 		pd->current_state = PE_SRC_SEND_CAPABILITIES;
 		kick_sm(pd, ms);
@@ -4159,8 +4173,6 @@ static ssize_t select_pdo_store(struct device *dev,
 	int pdo, uv = 0, ua = 0;
 	int ret;
 
-	return size;
-
 	mutex_lock(&pd->swap_lock);
 
 	/* Only allowed if we are already in explicit sink contract */
@@ -4572,6 +4584,7 @@ static void usbpd_release(struct device *dev)
 
 	kfree(pd);
 }
+
 #ifdef VENDOR_EDIT
 struct usbpd *pd_lobal = NULL;
 int oplus_usbpd_send_svdm(u16 svid, u8 cmd, enum usbpd_svdm_cmd_type cmd_type,
@@ -4581,6 +4594,7 @@ int oplus_usbpd_send_svdm(u16 svid, u8 cmd, enum usbpd_svdm_cmd_type cmd_type,
 
 	return usbpd_send_vdm(pd, svdm_hdr, vdos, num_vdos);
 }
+
 bool oplus_check_pd_state_ready(void)
 {
 	return (pd_lobal->in_good_connect);
@@ -4819,6 +4833,10 @@ struct usbpd *usbpd_create(struct device *parent)
 
 	if (device_property_read_bool(parent, "qcom,no-usb3-dp-concurrency"))
 		pd->no_usb3dp_concurrency = true;
+
+	if (device_property_read_bool(parent, "qcom,pd-20-source-only"))
+		pd->pd20_source_only = true;
+
 	/*
 	 * Register the Android dual-role class (/sys/class/dual_role_usb/).
 	 * The first instance should be named "otg_default" as that's what

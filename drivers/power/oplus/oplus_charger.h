@@ -32,72 +32,11 @@
 #endif
 #endif
 
-#ifdef CONFIG_OPLUS_CHARGER_MTK
-#include <linux/i2c.h>
-//#include <mt-plat/battery_meter.h>
-#include <mt-plat/mtk_boot.h>
-#ifdef CONFIG_OPLUS_CHARGER_MTK6779
-#include "charger_ic/oplus_battery_mtk6779.h"
-#endif
-#ifdef CONFIG_OPLUS_CHARGER_MTK6779Q
-#include "charger_ic/oplus_battery_mtk6779Q.h"
-#endif
-#ifdef CONFIG_OPLUS_CHARGER_MTK6885
-#include "charger_ic/oplus_battery_mtk6885.h"
-#endif
-#ifdef CONFIG_OPLUS_CHARGER_MTK6873
-#include "charger_ic/oplus_battery_mtk6873.h"
-#endif
-#ifdef CONFIG_OPLUS_CHARGER_MTK6853
-#include "charger_ic/oplus_battery_mtk6853.h"
-#endif
-#else /* CONFIG_OPLUS_CHARGER_MTK */
-#include <linux/regulator/driver.h>
-#include <linux/regulator/of_regulator.h>
-#include <linux/regulator/machine.h>
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0))
-#include <linux/qpnp/qpnp-adc.h>
-#include <linux/msm_bcl.h>
-#endif
-#include <soc/oplus/system/boot_mode.h>
-#ifdef CONFIG_OPLUS_MSM8953N_CHARGER
-#include "charger_ic/oplus_battery_msm8953_N.h"
-#elif defined CONFIG_OPLUS_MSM8953_CHARGER
-#include "charger_ic/oplus_battery_msm8953.h"
-#elif defined CONFIG_OPLUS_MSM8998_CHARGER
-#include "charger_ic/oplus_battery_msm8998.h"
-#elif defined CONFIG_OPLUS_MSM8998O_CHARGER
-#include "charger_ic/oplus_battery_msm8998_O.h"
-#elif defined CONFIG_OPLUS_SDM845_CHARGER
-#include "charger_ic/oplus_battery_sdm845.h"
-#elif defined CONFIG_OPLUS_SDM670_CHARGER
-#include "charger_ic/oplus_battery_sdm670.h"
-#elif defined CONFIG_OPLUS_SDM670P_CHARGER
-#include "charger_ic/oplus_battery_sdm670P.h"
-#elif defined CONFIG_OPLUS_SM8150_CHARGER
-#include "charger_ic/oplus_battery_msm8150.h"
-#elif defined CONFIG_OPLUS_SM8250_CHARGER
-#include "charger_ic/oplus_battery_msm8250.h"
-#elif defined CONFIG_OPLUS_SM8150R_CHARGER
+#include <soc/oplus/boot_mode.h>
+#ifdef CONFIG_OPLUS_SM8150R_CHARGER
 #include "charger_ic/oplus_battery_msm8150Q.h"
-#elif defined CONFIG_OPLUS_SM8150_PRO_CHARGER
-#include "charger_ic/oplus_battery_msm8150_pro.h"
-#elif defined CONFIG_OPLUS_SM6125_CHARGER
-#include "charger_ic/oplus_battery_sm6125P.h"
-#elif defined CONFIG_OPLUS_SM7150R_CHARGER
-#include "charger_ic/oplus_battery_sm7150_R.h"
-#elif defined CONFIG_OPLUS_SDM670Q_CHARGER
-#include "charger_ic/oplus_battery_sdm670Q.h"
-#elif defined CONFIG_OPLUS_SM7250_CHARGER
-#include "charger_ic/oplus_battery_msm7250_Q.h"
-#elif defined CONFIG_OPLUS_SM7250R_CHARGER
-#include "charger_ic/oplus_battery_msm7250_R.h"
-#elif defined CONFIG_OPLUS_SM7125R_CHARGER
-#include "charger_ic/oplus_battery_msm7125_R.h"
-#else /* CONFIG_OPLUS_MSM8953_CHARGER */
-#include "charger_ic/oplus_battery_msm8976.h"
-#endif /* CONFIG_OPLUS_MSM8953_CHARGER */
-#endif /* CONFIG_OPLUS_CHARGER_MTK */
+#endif /* CONFIG_OPLUS_SM8150R_CHARGER */
+
 
 #define CHG_LOG_CRTI 1
 #define CHG_LOG_FULL 2

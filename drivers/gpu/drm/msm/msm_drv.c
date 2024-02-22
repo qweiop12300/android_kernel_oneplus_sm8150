@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
  *
@@ -39,6 +39,7 @@
 
 #include <linux/of_address.h>
 #include <linux/kthread.h>
+#include <linux/workqueue.h>
 #include <uapi/linux/sched/types.h>
 #include <drm/drm_of.h>
 #include <soc/qcom/boot_stats.h>
@@ -49,6 +50,7 @@
 #include "msm_kms.h"
 #include "sde_wb.h"
 #include "sde_dbg.h"
+#include <drm/drm_client.h>
 
 /*
  * MSM driver version:
@@ -311,6 +313,7 @@ static int msm_drm_uninit(struct device *dev)
 	drm_mode_config_cleanup(ddev);
 
 	if (priv->registered) {
+		drm_client_dev_unregister(ddev);
 		drm_dev_unregister(ddev);
 		priv->registered = false;
 	}
@@ -427,7 +430,7 @@ static int msm_init_vram(struct drm_device *dev)
 		of_node_put(node);
 		if (ret)
 			return ret;
-		size = r.end - r.start;
+		size = r.end - r.start + 1;
 		DRM_INFO("using VRAM carveout: %lx@%pa\n", size, &r.start);
 
 		/* if we have no IOMMU, then we need to use carveout allocator.
@@ -495,6 +498,156 @@ static int msm_power_enable_wrapper(void *handle, void *client, bool enable)
 	return sde_power_resource_enable(handle, client, enable);
 }
 
+static ssize_t idle_encoder_mask_store(struct device *device,
+			       struct device_attribute *attr,
+			       const char *buf, size_t count)
+{
+	struct drm_device *ddev = dev_get_drvdata(device);
+	struct msm_drm_private *priv = ddev->dev_private;
+	struct msm_idle *idle = &priv->idle;
+	u32 encoder_mask = 0;
+	int rc;
+	unsigned long flags;
+
+	rc = kstrtouint(buf, 0, &encoder_mask);
+	if (rc)
+		return rc;
+
+	spin_lock_irqsave(&idle->lock, flags);
+	idle->encoder_mask = encoder_mask;
+	idle->active_mask &= encoder_mask;
+	spin_unlock_irqrestore(&idle->lock, flags);
+
+	return count;
+}
+
+static ssize_t idle_encoder_mask_show(struct device *device,
+			      struct device_attribute *attr,
+			      char *buf)
+{
+	struct drm_device *ddev = dev_get_drvdata(device);
+	struct msm_drm_private *priv = ddev->dev_private;
+	struct msm_idle *idle = &priv->idle;
+
+	return snprintf(buf, PAGE_SIZE, "0x%x\n", idle->encoder_mask);
+}
+
+static ssize_t idle_timeout_ms_store(struct device *device,
+			       struct device_attribute *attr,
+			       const char *buf, size_t count)
+{
+	struct drm_device *ddev = dev_get_drvdata(device);
+	struct msm_drm_private *priv = ddev->dev_private;
+	struct msm_idle *idle = &priv->idle;
+	u32 timeout_ms = 0;
+	int rc;
+	unsigned long flags;
+
+	rc = kstrtouint(buf, 10, &timeout_ms);
+	if (rc)
+		return rc;
+
+	spin_lock_irqsave(&idle->lock, flags);
+	idle->timeout_ms = timeout_ms;
+	spin_unlock_irqrestore(&idle->lock, flags);
+
+	return count;
+}
+
+static ssize_t idle_timeout_ms_show(struct device *device,
+			      struct device_attribute *attr,
+			      char *buf)
+{
+	struct drm_device *ddev = dev_get_drvdata(device);
+	struct msm_drm_private *priv = ddev->dev_private;
+	struct msm_idle *idle = &priv->idle;
+
+	return scnprintf(buf, PAGE_SIZE, "%d\n", idle->timeout_ms);
+}
+
+static ssize_t idle_state_show(struct device *device,
+			      struct device_attribute *attr,
+			      char *buf)
+{
+	struct drm_device *ddev = dev_get_drvdata(device);
+	struct msm_drm_private *priv = ddev->dev_private;
+	struct msm_idle *idle = &priv->idle;
+	const char *state;
+	unsigned long flags;
+
+	spin_lock_irqsave(&idle->lock, flags);
+	if (idle->active_mask) {
+		state = "active";
+		spin_unlock_irqrestore(&idle->lock, flags);
+		return scnprintf(buf, PAGE_SIZE, "%s (0x%x)\n",
+				 state, idle->active_mask);
+	} else if (delayed_work_pending(&idle->work))
+		state = "pending";
+	else
+		state = "idle";
+	spin_unlock_irqrestore(&idle->lock, flags);
+
+	return scnprintf(buf, PAGE_SIZE, "%s\n", state);
+}
+
+static DEVICE_ATTR_RW(idle_encoder_mask);
+static DEVICE_ATTR_RW(idle_timeout_ms);
+static DEVICE_ATTR_RO(idle_state);
+
+static const struct attribute *msm_idle_attrs[] = {
+	&dev_attr_idle_encoder_mask.attr,
+	&dev_attr_idle_timeout_ms.attr,
+	&dev_attr_idle_state.attr,
+	NULL
+};
+
+static void msm_idle_work(struct work_struct *work)
+{
+	struct delayed_work *dw = to_delayed_work(work);
+	struct msm_idle *idle = container_of(dw, struct msm_idle, work);
+	struct msm_drm_private *priv = container_of(idle,
+					struct msm_drm_private, idle);
+
+	if (!idle->active_mask)
+		sysfs_notify(&priv->dev->dev->kobj, NULL, "idle_state");
+}
+
+void msm_idle_set_state(struct drm_encoder *encoder, bool active)
+{
+	struct drm_device *ddev = encoder->dev;
+	struct msm_drm_private *priv = ddev->dev_private;
+	struct msm_idle *idle = &priv->idle;
+	unsigned int mask = 1 << drm_encoder_index(encoder);
+	unsigned long flags;
+
+	spin_lock_irqsave(&idle->lock, flags);
+	if (mask & idle->encoder_mask) {
+		if (active)
+			idle->active_mask |= mask;
+		else
+			idle->active_mask &= ~mask;
+
+		if (idle->timeout_ms && !idle->active_mask)
+			mod_delayed_work(system_wq, &idle->work,
+					 msecs_to_jiffies(idle->timeout_ms));
+		else
+			cancel_delayed_work(&idle->work);
+	}
+	spin_unlock_irqrestore(&idle->lock, flags);
+}
+
+static void msm_idle_init(struct drm_device *ddev)
+{
+	struct msm_drm_private *priv = ddev->dev_private;
+	struct msm_idle *idle = &priv->idle;
+
+	if (sysfs_create_files(&ddev->dev->kobj, msm_idle_attrs) < 0)
+		pr_warn("failed to create idle state file");
+
+	INIT_DELAYED_WORK(&idle->work, msm_idle_work);
+	spin_lock_init(&idle->lock);
+}
+
 static int msm_drm_init(struct device *dev, struct drm_driver *drv)
 {
 	struct platform_device *pdev = to_platform_device(dev);
@@ -554,6 +707,8 @@ static int msm_drm_init(struct device *dev, struct drm_driver *drv)
 		dev_err(dev, "failed to init sde dbg: %d\n", ret);
 		goto dbg_init_fail;
 	}
+
+	msm_idle_init(ddev);
 
 	/* Bind all our sub-components: */
 	ret = msm_component_bind_all(dev, ddev);
@@ -1382,24 +1537,27 @@ static int msm_ioctl_register_event(struct drm_device *dev, void *data,
 	 * calls add to client list and return.
 	 */
 	count = msm_event_client_count(dev, req_event, false);
-	/* Add current client to list */
-	spin_lock_irqsave(&dev->event_lock, flag);
-	list_add_tail(&client->base.link, &priv->client_event_list);
-	spin_unlock_irqrestore(&dev->event_lock, flag);
-
-	if (count)
+	if (count) {
+		/* Add current client to list */
+		spin_lock_irqsave(&dev->event_lock, flag);
+		list_add_tail(&client->base.link, &priv->client_event_list);
+		spin_unlock_irqrestore(&dev->event_lock, flag);
 		return 0;
+	}
 
 	ret = msm_register_event(dev, req_event, file, true);
 	if (ret) {
 		DRM_ERROR("failed to enable event %x object %x object id %d\n",
 			req_event->event, req_event->object_type,
 			req_event->object_id);
-		spin_lock_irqsave(&dev->event_lock, flag);
-		list_del(&client->base.link);
-		spin_unlock_irqrestore(&dev->event_lock, flag);
 		kfree(client);
+	} else {
+		/* Add current client to list */
+		spin_lock_irqsave(&dev->event_lock, flag);
+		list_add_tail(&client->base.link, &priv->client_event_list);
+		spin_unlock_irqrestore(&dev->event_lock, flag);
 	}
+
 	return ret;
 }
 
@@ -1470,10 +1628,8 @@ void msm_mode_object_event_notify(struct drm_mode_object *obj,
 	spin_lock_irqsave(&dev->event_lock, flags);
 	list_for_each_entry(node, &priv->client_event_list, base.link) {
 		if (node->event.type != event->type ||
-			obj->id != node->info.object_id) {
-			SDE_EVT32(node->event.type, event->type, obj->id, node->info.object_id);
+			obj->id != node->info.object_id)
 			continue;
-		}
 		len = event->length + sizeof(struct msm_drm_event);
 		if (node->base.file_priv->event_space < len) {
 			DRM_ERROR("Insufficient space %d for event %x len %d\n",
@@ -1482,10 +1638,8 @@ void msm_mode_object_event_notify(struct drm_mode_object *obj,
 			continue;
 		}
 		notify = kzalloc(len, GFP_ATOMIC);
-		if (!notify) {
-			SDE_EVT32(0x1111, SDE_EVTLOG_ERROR);
+		if (!notify)
 			continue;
-		}
 		notify->base.file_priv = node->base.file_priv;
 		notify->base.event = &notify->event;
 		notify->event.type = node->event.type;
@@ -1495,15 +1649,11 @@ void msm_mode_object_event_notify(struct drm_mode_object *obj,
 		memcpy(notify->data, payload, event->length);
 		ret = drm_event_reserve_init_locked(dev, node->base.file_priv,
 			&notify->base, &notify->event);
-		SDE_EVT32(notify->base.event, notify->event.type);
 		if (ret) {
 			kfree(notify);
-			pr_err("%s: Notify Failed\n", __func__);
-			SDE_EVT32(0x2222, SDE_EVTLOG_ERROR);
 			continue;
 		}
 		drm_send_event_locked(dev, &notify->base);
-		SDE_EVT32(notify->base.event, notify->event.type, obj->id);
 	}
 	spin_unlock_irqrestore(&dev->event_lock, flags);
 }
@@ -1523,7 +1673,6 @@ static int msm_release(struct inode *inode, struct file *filp)
 	mutex_lock(&msm_release_lock);
 
 	file_priv = filp->private_data;
-
 	if (!file_priv) {
 		ret = -EINVAL;
 		goto end;
@@ -1559,6 +1708,13 @@ static int msm_release(struct inode *inode, struct file *filp)
 		kfree(node);
 	}
 
+	msm_preclose(dev, file_priv);
+
+       /**
+	* Handle preclose operation here for removing fb's whose
+	* refcount > 1. This operation is not triggered from upstream
+	* drm as msm_driver does not support DRIVER_LEGACY feature.
+	*/
 	ret = drm_release(inode, filp);
 	filp->private_data = NULL;
 end:
@@ -1717,7 +1873,6 @@ static struct drm_driver msm_driver = {
 				DRIVER_ATOMIC |
 				DRIVER_MODESET,
 	.open               = msm_open,
-	.preclose           = msm_preclose,
 	.postclose          = msm_postclose,
 	.lastclose          = msm_lastclose,
 	.irq_handler        = msm_irq,
@@ -2168,6 +2323,7 @@ static struct platform_driver msm_platform_driver = {
 		.of_match_table = dt_match,
 		.pm     = &msm_pm_ops,
 		.suppress_bind_attrs = true,
+		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
 };
 

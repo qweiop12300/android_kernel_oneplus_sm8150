@@ -1,6 +1,3 @@
-#if defined(OP_8150_ADAPT)
-#include <media/msm_camsensor_sdk_op.h>
-#else
 #ifndef __UAPI_LINUX_MSM_CAMSENSOR_SDK_H
 #define __UAPI_LINUX_MSM_CAMSENSOR_SDK_H
 
@@ -25,11 +22,7 @@
 #define CSI_DECODE_DPCM_10_8_10 5
 #define MAX_CID                 16
 #define I2C_SEQ_REG_DATA_MAX    1024
-//#ifndef VENDOR_EDIT
-//#define I2C_REG_DATA_MAX       (8*1024)
-//#else
-#define I2C_REG_DATA_MAX       (16*1024)
-//#endif
+#define I2C_REG_DATA_MAX       (8*1024)
 
 #define MSM_V4L2_PIX_FMT_META v4l2_fourcc('M', 'E', 'T', 'A') /* META */
 #define MSM_V4L2_PIX_FMT_SBGGR14 v4l2_fourcc('B', 'G', '1', '4')
@@ -52,8 +45,8 @@
 
 #define MAX_LED_TRIGGERS          3
 
-#define MSM_EEPROM_MEMORY_MAP_MAX_SIZE  80
-#define MSM_EEPROM_MAX_MEM_MAP_CNT      8
+#define MSM_EEPROM_MEMORY_MAP_MAX_SIZE  512
+#define MSM_EEPROM_MAX_MEM_MAP_CNT      9
 
 #define MSM_SENSOR_BYPASS_VIDEO_NODE    1
 
@@ -68,6 +61,8 @@ enum msm_sensor_camera_id_t {
 	CAMERA_1,
 	CAMERA_2,
 	CAMERA_3,
+	CAMERA_4,
+	CAMERA_5,
 	MAX_CAMERAS,
 };
 
@@ -266,6 +261,9 @@ enum msm_camera_i2c_operation {
 	MSM_CAM_WRITE = 0,
 	MSM_CAM_POLL,
 	MSM_CAM_READ,
+	MSM_CAM_READ_PAGE,
+	MSM_CAM_WRITE_DELAYUSEC,
+	MSM_CAM_READ_CONTINUOUS,
 };
 
 struct msm_sensor_i2c_sync_params {
@@ -446,5 +444,4 @@ struct msm_camera_i2c_reg_setting_array {
 	unsigned short delay;
 };
 
-#endif
 #endif

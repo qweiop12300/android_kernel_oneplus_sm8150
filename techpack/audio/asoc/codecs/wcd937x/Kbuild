@@ -84,12 +84,6 @@ CDEFINES +=	-DANI_LITTLE_BYTE_ENDIAN \
 		-Werror\
 		-D__linux__
 
-#ifdef OPLUS_ARCH_EXTENDS
-ifeq ($(CONFIG_ARCH_SM6150), y)
-CDEFINES += -DDBMDX_SOUND_TRIGGER_SUPPORT
-endif
-#endif /* OPLUS_ARCH_EXTENDS */
-
 KBUILD_CPPFLAGS += $(CDEFINES)
 
 # Currently, for versions of gcc which support it, the kernel Makefile
@@ -123,6 +117,3 @@ wcd937x_dlkm-y := $(WCD937X_OBJS)
 
 obj-$(CONFIG_SND_SOC_WCD937X_SLAVE) += wcd937x_slave_dlkm.o
 wcd937x_slave_dlkm-y := $(WCD937X_SLAVE_OBJS)
-
-# inject some build related information
-DEFINES += -DBUILD_TIMESTAMP=\"$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')\"

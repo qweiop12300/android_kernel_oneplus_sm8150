@@ -30,10 +30,6 @@
 static struct reserved_mem reserved_mem[MAX_RESERVED_REGIONS];
 static int reserved_mem_count;
 
-#ifdef OPLUS_FEATURE_LOWMEM_DBG
-static unsigned long reserved_mem_size;
-#endif /* OPLUS_FEATURE_LOWMEM_DBG */
-
 #if defined(CONFIG_HAVE_MEMBLOCK)
 #include <linux/memblock.h>
 int __init __weak early_init_dt_alloc_reserved_memory_arch(phys_addr_t size,
@@ -165,9 +161,9 @@ static int __init __reserved_mem_alloc_size(unsigned long node,
 			ret = early_init_dt_alloc_reserved_memory_arch(size,
 					align, start, end, nomap, &base);
 			if (ret == 0) {
-				pr_debug("allocated memory for '%s' node: base %pa, size %ld MiB\n",
+				pr_debug("allocated memory for '%s' node: base %pa, size %lu MiB\n",
 					uname, &base,
-					(unsigned long)size / SZ_1M);
+					(unsigned long)(size / SZ_1M));
 				break;
 			}
 			len -= t_len;
@@ -177,8 +173,8 @@ static int __init __reserved_mem_alloc_size(unsigned long node,
 		ret = early_init_dt_alloc_reserved_memory_arch(size, align,
 							0, 0, nomap, &base);
 		if (ret == 0)
-			pr_debug("allocated memory for '%s' node: base %pa, size %ld MiB\n",
-				uname, &base, (unsigned long)size / SZ_1M);
+			pr_debug("allocated memory for '%s' node: base %pa, size %lu MiB\n",
+				uname, &base, (unsigned long)(size / SZ_1M));
 	}
 
 	if (base == 0) {
@@ -229,6 +225,16 @@ static int __init __rmem_cmp(const void *a, const void *b)
 	if (ra->base > rb->base)
 		return 1;
 
+	/*
+	 * Put the dynamic allocations (address == 0, size == 0) before static
+	 * allocations at address 0x0 so that overlap detection works
+	 * correctly.
+	 */
+	if (ra->size < rb->size)
+		return -1;
+	if (ra->size > rb->size)
+		return 1;
+
 	return 0;
 }
 
@@ -246,8 +252,7 @@ static void __init __rmem_check_for_overlap(void)
 
 		this = &reserved_mem[i];
 		next = &reserved_mem[i + 1];
-		if (!(this->base && next->base))
-			continue;
+
 		if (this->base + this->size > next->base) {
 			phys_addr_t this_end, next_end;
 
@@ -288,9 +293,6 @@ void __init fdt_init_reserved_mem(void)
 						 &rmem->base, &rmem->size);
 		if (err == 0)
 			__reserved_mem_init_node(rmem);
-#ifdef OPLUS_FEATURE_LOWMEM_DBG
-		reserved_mem_size += rmem->size;
-#endif /* OPLUS_FEATURE_LOWMEM_DBG */
 	}
 }
 
@@ -378,13 +380,6 @@ int of_reserved_mem_device_init_by_idx(struct device *dev,
 }
 EXPORT_SYMBOL_GPL(of_reserved_mem_device_init_by_idx);
 
-#ifdef OPLUS_FEATURE_LOWMEM_DBG
-unsigned long dt_memory_reserved_pages(void)
-{
-	return reserved_mem_size >> PAGE_SHIFT;
-}
-#endif /* OPLUS_FEATURE_LOWMEM_DBG */
-
 /**
  * of_reserved_mem_device_release() - release reserved memory device structures
  * @dev:	Pointer to the device to deconfigure
@@ -414,29 +409,3 @@ void of_reserved_mem_device_release(struct device *dev)
 	rmem->ops->device_release(rmem, dev);
 }
 EXPORT_SYMBOL_GPL(of_reserved_mem_device_release);
-
-/**
- * of_reserved_mem_lookup() - acquire reserved_mem from a device node
- * @np:		node pointer of the desired reserved-memory region
- *
- * This function allows drivers to acquire a reference to the reserved_mem
- * struct based on a device node handle.
- *
- * Returns a reserved_mem reference, or NULL on error.
- */
-struct reserved_mem *of_reserved_mem_lookup(struct device_node *np)
-{
-	const char *name;
-	int i;
-
-	if (!np->full_name)
-		return NULL;
-
-	name = kbasename(np->full_name);
-	for (i = 0; i < reserved_mem_count; i++)
-		if (!strcmp(reserved_mem[i].name, name))
-			return &reserved_mem[i];
-
-	return NULL;
-}
-EXPORT_SYMBOL_GPL(of_reserved_mem_lookup);

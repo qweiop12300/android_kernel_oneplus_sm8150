@@ -108,7 +108,8 @@ static ssize_t power_supply_show_property(struct device *dev,
 
 		if (ret < 0) {
 			if (ret == -ENODATA)
-				dev_dbg(dev, "driver has no data for `%s' property\n",
+				dev_dbg_ratelimited(dev,
+					"driver has no data for `%s' property\n",
 					attr->attr.name);
 			else if (ret != -ENODEV && ret != -EAGAIN)
 				dev_err_ratelimited(dev,
@@ -381,8 +382,8 @@ static struct device_attribute power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(soc_reporting_ready),
 #ifdef VENDOR_EDIT
 	/* Ji.Xu PSW.BSP.CHG  2018-07-23  Save battery capacity to persist partition */
-		POWER_SUPPLY_ATTR(soc_notify_ready),
-		POWER_SUPPLY_ATTR(restore_soc),
+	POWER_SUPPLY_ATTR(soc_notify_ready),
+	POWER_SUPPLY_ATTR(restore_soc),
 #endif /* VENDOR_EDIT */
 	POWER_SUPPLY_ATTR(debug_battery),
 	POWER_SUPPLY_ATTR(fcc_delta),
@@ -485,7 +486,7 @@ static struct device_attribute power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(short_ic_volt_thresh),
 	POWER_SUPPLY_ATTR(short_ic_otp_value),
 #endif
-// add by huangtongfeng  for wireless file
+	// add by huangtongfeng  for wireless file
 	POWER_SUPPLY_ATTR(tx_voltag_now),
 	POWER_SUPPLY_ATTR(tx_current_now),
 	POWER_SUPPLY_ATTR(cp_voltage_now),

@@ -23,7 +23,6 @@
 #define SMEM_PROJECT    135
 
 #define UINT2Ptr(n)        (uint32_t *)(n)
-#define Ptr2UINT32(p)    (uint32_t)(p)
 
 #define PROJECT_VERSION            (0x1)
 #define PCB_VERSION                (0x2)
@@ -341,7 +340,7 @@ uint32_t get_oplus_feature(enum F_INDEX index)
 EXPORT_SYMBOL(get_oplus_feature);
 
 #define SERIALNO_LEN 16
-unsigned int get_serialID()
+unsigned int get_serialID(void)
 {
     unsigned int serial_id = 0xFFFFFFFF;
 
@@ -529,7 +528,7 @@ static int project_read_func(struct seq_file *s, void *v)
 {
     void *p = s->private;
 
-    switch(Ptr2UINT32(p)) {
+    switch((uintptr_t)p) {
     case PROJECT_VERSION:
         if (get_project() > 0x20000) {
             seq_printf(s, "%X", get_project());
@@ -585,7 +584,7 @@ static int project_read_func(struct seq_file *s, void *v)
     return 0;
 }
 
-unsigned int get_cdt_version()
+unsigned int get_cdt_version(void)
 {
     init_project_version();
 

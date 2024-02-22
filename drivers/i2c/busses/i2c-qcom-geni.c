@@ -725,13 +725,6 @@ static int geni_i2c_xfer(struct i2c_adapter *adap,
 		mutex_unlock(&gi2c->i2c_ssr.ssr_lock);
 		return -EINVAL;
 	}
-	/* Client to respect system suspend */
-	if (!pm_runtime_enabled(gi2c->dev)) {
-		GENI_SE_ERR(gi2c->ipcl, false, gi2c->dev,
-			"%s: System suspended\n", __func__);
-		mutex_unlock(&gi2c->i2c_ssr.ssr_lock);
-		return -EACCES;
-	}
 
 	ret = pm_runtime_get_sync(gi2c->dev);
 	if (ret < 0) {
@@ -1300,6 +1293,7 @@ static struct platform_driver geni_i2c_driver = {
 		.name = "i2c_geni",
 		.pm = &geni_i2c_pm_ops,
 		.of_match_table = geni_i2c_dt_match,
+		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
 };
 

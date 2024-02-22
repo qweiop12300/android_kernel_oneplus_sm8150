@@ -15,15 +15,8 @@
 
 #include <linux/bitops.h>
 
-
 #ifdef VENDOR_EDIT
-#ifdef CONFIG_OPLUS_SM7125R_CHARGER
-#include "../../oplus/charger_ic/oplus_battery_msm7125_R.h"
-#elif defined CONFIG_OPLUS_SM7150R_CHARGER
-#include "../../oplus/charger_ic/oplus_battery_sm7150_R.h"
-#else
 #include "../../oplus/charger_ic/oplus_battery_msm8150Q.h"
-#endif
 #endif
 #define SCHGM_FLASH_BASE			0xA600
 

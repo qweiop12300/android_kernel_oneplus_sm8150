@@ -12,15 +12,12 @@
 ******************************************************************/
 #include "oplus_display_panel.h"
 
-int oplus_display_panel_set_hecate_info(void *buf);
-
 #define PANEL_IOCTL_DEF(ioctl, _func) \
 	[PANEL_IOCTL_NR(ioctl)] = {		\
 		.cmd = ioctl,			\
 		.func = _func,			\
 		.name = #ioctl,			\
 	}
-extern int oplus_display_set_aod_area(void *buf);
 extern int oplus_display_panel_set_dimlayer_enable(void *data);
 extern int oplus_display_panel_get_brightness(void *buf);
 
@@ -54,23 +51,7 @@ static const struct panel_ioctl_desc panel_ioctls[] = {
 	PANEL_IOCTL_DEF(PANEL_IOCTL_SET_DIMLAYER_BL_EN, oplus_display_panel_set_dimlayer_enable),
 	PANEL_IOCTL_DEF(PANEL_IOCTL_GET_OPLUS_BRIGHTNESS, oplus_display_panel_get_brightness),
 	PANEL_IOCTL_DEF(PANEL_IOCTL_SET_FP_PRESS, oplus_display_panel_notify_fp_press),
-	PANEL_IOCTL_DEF(PANEL_IOCTL_SET_AOD_AREA,  oplus_display_set_aod_area),
-	PANEL_IOCTL_DEF(PANEL_IOCTL_SET_HECATE_INFO,  oplus_display_panel_set_hecate_info),
 };
-
-static struct hecate_info mhecate_info[2] = {{ 0 }, { 0 }};
-int oplus_display_panel_set_hecate_info(void *buf)
-{
-	struct hecate_info *h_info = buf;
-
-	uint32_t display_id = h_info->display_id;
-	mhecate_info[display_id].display_id = h_info->display_id;
-	mhecate_info[display_id].kgsl_dump = h_info->kgsl_dump;
-	pr_err("%s, displayid = %d, kgsl dump = %d", __func__,
-		h_info->display_id, mhecate_info[display_id].kgsl_dump);
-
-	return 0;
-}
 
 static int panel_open(struct inode *inode, struct file *filp)
 {
@@ -86,32 +67,6 @@ static int panel_open(struct inode *inode, struct file *filp)
 	++panel_ref;
 
 	return 0;
-}
-
-extern ssize_t oplus_sde_evtlog_dump_read(struct file *file, char __user *buff,
-		size_t count, loff_t *ppos);
-
-static ssize_t panel_read(struct file *filp, char __user *buffer,
-		size_t count, loff_t *offset)
-{
-	ssize_t lens = 0;
-
-	if (mhecate_info[0].kgsl_dump) {
-		lens += oplus_sde_evtlog_dump_read(filp, buffer, count, offset);
-		if (lens < 0) {
-			lens = 0;
-		}
-	}
-	/*other dump add here, as for lens add*/
-
-	return lens;
-}
-
-static ssize_t panel_write(struct file *file, const char __user *buffer,
-		size_t count, loff_t *f_pos)
-{
-	pr_err("%s\n", __func__);
-	return count;
 }
 
 long panel_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
@@ -202,11 +157,9 @@ static const struct file_operations panel_ops =
 	.release            = panel_release,
 	.unlocked_ioctl     = panel_ioctl,
 	.compat_ioctl       = panel_ioctl,
-	.read               = panel_read,
-	.write              = panel_write,
 };
 
-static int __init oplus_display_panel_init()
+static int __init oplus_display_panel_init(void)
 {
 	int rc = 0;
 

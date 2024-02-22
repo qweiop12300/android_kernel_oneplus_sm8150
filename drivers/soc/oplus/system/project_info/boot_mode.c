@@ -9,7 +9,7 @@
 #include <linux/uaccess.h>
 #include <linux/sysfs.h>
 #include <linux/gpio.h>
-#include <soc/oplus/system/boot_mode.h>
+#include <soc/oplus/boot_mode.h>
 
 #define MAX_CMD_LENGTH 32
 
@@ -146,25 +146,6 @@ bool qpnp_is_power_off_charging(void)
 	return false;
 }
 EXPORT_SYMBOL(qpnp_is_power_off_charging);
-
-#ifdef PHOENIX_PROJECT
-bool op_is_monitorable_boot(void)
-{
-	if (ftm_mode != MSM_BOOT_MODE__NORMAL) {
-		return false;
-	}
-
-	if (!strcmp(boot_mode, "normal")) {
-		return true;
-	} else if (!strcmp(boot_mode, "reboot")) {
-		return true;
-	} else if (!strcmp(boot_mode, "kernel")) {
-		return true;
-	} else {
-		return false;
-	}
-}
-#endif
 
 char charger_reboot[MAX_CMD_LENGTH + 1];
 bool qpnp_is_charger_reboot(void)

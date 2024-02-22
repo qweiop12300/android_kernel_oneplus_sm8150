@@ -54,15 +54,9 @@ msm_drm-y := \
 	sde/sde_hw_ad4.o \
 	sde_edid_parser.o \
 	sde_hdcp_1x.o \
-	sde_hdcp_2x.o
-
-##ifdef OPLUS_BUG_STABILITY
-msm_drm-y += sde_dbg.o \
+	sde_hdcp_2x.o \
+	sde_dbg.o \
 	sde_dbg_evtlog.o \
-###else
-##msm_drm-$(CONFIG_DEBUG_FS) += sde_dbg.o \
-##	sde_dbg_evtlog.o \
-###endif
 
 msm_drm-$(CONFIG_DRM_MSM_HDMI) += hdmi/hdmi.o \
 	hdmi/hdmi_audio.o \
@@ -226,8 +220,7 @@ msm_drm-$(CONFIG_DRM_MSM) += \
 	msm_fence.o \
 	msm_debugfs.o
 
-msm_drm-y += oplus/oplus_mm_kevent_fb.o \
-	oplus/oplus_mm_kevent.o \
+msm_drm-y += \
 	oplus/oplus_dsi_support.o \
 	oplus/oplus_display_private_api.o \
 	oplus/oplus_dc_diming.o \

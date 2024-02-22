@@ -9,11 +9,3 @@ obj-$(CONFIG_POWER_SUPPLY)	+= supply/
 #ifdef OPLUS_FEATURE_CHG_BASIC
 obj-$(CONFIG_OPLUS_SM8150R_CHARGER)	+= oplus/
 #endif
-
-#ifdef VENDOR_EDIT
-obj-$(CONFIG_OPLUS_SM7125R_CHARGER)	+= oplus/
-#endif
-
-#ifdef VENDOR_EDIT
-obj-$(CONFIG_OPLUS_SM7150R_CHARGER)	+= oplus/
-#endif

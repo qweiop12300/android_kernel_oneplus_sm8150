@@ -51,6 +51,7 @@
 #include <linux/bug.h>
 #include <linux/delay.h>
 #include <linux/nmi.h>
+#include <linux/kvm_para.h>
 
 #include "workqueue_internal.h"
 
@@ -85,12 +86,7 @@ enum {
 	WORKER_NOT_RUNNING	= WORKER_PREP | WORKER_CPU_INTENSIVE |
 				  WORKER_UNBOUND | WORKER_REBOUND,
 
-#ifdef OPLUS_FEATURE_SCHED_ASSIST
-	NR_STD_WORKER_POOLS	= 3,		/* # standard pools per cpu */
-	UX_WORKER_POOL_INDEX	= 2,		/* last index of pools is ux type */
-#else
 	NR_STD_WORKER_POOLS	= 2,		/* # standard pools per cpu */
-#endif
 
 	UNBOUND_POOL_HASH_ORDER	= 6,		/* hashed by pool->attrs */
 	BUSY_WORKER_HASH_ORDER	= 6,		/* 64 pointers */
@@ -358,11 +354,6 @@ struct workqueue_struct *system_power_efficient_wq __read_mostly;
 EXPORT_SYMBOL_GPL(system_power_efficient_wq);
 struct workqueue_struct *system_freezable_power_efficient_wq __read_mostly;
 EXPORT_SYMBOL_GPL(system_freezable_power_efficient_wq);
-
-#ifdef OPLUS_FEATURE_SCHED_ASSIST
-struct workqueue_struct *system_ux_wq __read_mostly;
-EXPORT_SYMBOL_GPL(system_ux_wq);
-#endif
 
 static int worker_thread(void *__worker);
 static void workqueue_sysfs_unregister(struct workqueue_struct *wq);
@@ -693,12 +684,17 @@ static void clear_work_data(struct work_struct *work)
 	set_work_data(work, WORK_STRUCT_NO_POOL, 0);
 }
 
+static inline struct pool_workqueue *work_struct_pwq(unsigned long data)
+{
+	return (struct pool_workqueue *)(data & WORK_STRUCT_WQ_DATA_MASK);
+}
+
 static struct pool_workqueue *get_work_pwq(struct work_struct *work)
 {
 	unsigned long data = atomic_long_read(&work->data);
 
 	if (data & WORK_STRUCT_PWQ)
-		return (void *)(data & WORK_STRUCT_WQ_DATA_MASK);
+		return work_struct_pwq(data);
 	else
 		return NULL;
 }
@@ -726,8 +722,7 @@ static struct worker_pool *get_work_pool(struct work_struct *work)
 	assert_rcu_or_pool_mutex();
 
 	if (data & WORK_STRUCT_PWQ)
-		return ((struct pool_workqueue *)
-			(data & WORK_STRUCT_WQ_DATA_MASK))->pool;
+		return work_struct_pwq(data)->pool;
 
 	pool_id = data >> WORK_OFFQ_POOL_SHIFT;
 	if (pool_id == WORK_OFFQ_POOL_NONE)
@@ -748,8 +743,7 @@ static int get_work_pool_id(struct work_struct *work)
 	unsigned long data = atomic_long_read(&work->data);
 
 	if (data & WORK_STRUCT_PWQ)
-		return ((struct pool_workqueue *)
-			(data & WORK_STRUCT_WQ_DATA_MASK))->pool->id;
+		return work_struct_pwq(data)->pool->id;
 
 	return data >> WORK_OFFQ_POOL_SHIFT;
 }
@@ -1338,7 +1332,6 @@ static void insert_work(struct pool_workqueue *pwq, struct work_struct *work,
 	/* we own @work, set data and link */
 	set_work_pwq(work, pwq, extra_flags);
 	list_add_tail(&work->entry, head);
-
 	get_pwq(pwq);
 
 	/*
@@ -1418,7 +1411,6 @@ static void __queue_work(int cpu, struct workqueue_struct *wq,
 	 */
 	WARN_ON_ONCE(!irqs_disabled());
 
-	debug_work_activate(work);
 
 	/* if draining, only works from the same workqueue are allowed */
 	if (unlikely(wq->flags & __WQ_DRAINING) &&
@@ -1501,6 +1493,7 @@ retry:
 		worklist = &pwq->delayed_works;
 	}
 
+	debug_work_activate(work);
 	insert_work(pwq, work, worklist, work_flags);
 
 	spin_unlock(&pwq->pool->lock);
@@ -1814,28 +1807,16 @@ static struct worker *create_worker(struct worker_pool *pool)
 	worker->pool = pool;
 	worker->id = id;
 
-#ifdef OPLUS_FEATURE_SCHED_ASSIST
-	if (pool->cpu >= 0)
-		snprintf(id_buf, sizeof(id_buf), "%d:%d%s", pool->cpu, id,
-			pool->attrs->ux_state > 0 ? "X" : pool->attrs->nice < 0  ? "H" : "");
-	else
-		snprintf(id_buf, sizeof(id_buf), "%s%d:%d", pool->attrs->ux_state > 0 ? "X" : "u", pool->id, id);
-#else
 	if (pool->cpu >= 0)
 		snprintf(id_buf, sizeof(id_buf), "%d:%d%s", pool->cpu, id,
 			 pool->attrs->nice < 0  ? "H" : "");
 	else
 		snprintf(id_buf, sizeof(id_buf), "u%d:%d", pool->id, id);
-#endif
 
 	worker->task = kthread_create_on_node(worker_thread, worker, pool->node,
 					      "kworker/%s", id_buf);
 	if (IS_ERR(worker->task))
 		goto fail;
-
-#ifdef OPLUS_FEATURE_SCHED_ASSIST
-	worker->task->ux_state = pool->attrs->ux_state;
-#endif
 
 	set_user_nice(worker->task, pool->attrs->nice);
 	kthread_bind_mask(worker->task, pool->attrs->cpumask);
@@ -2074,7 +2055,6 @@ __acquires(&pool->lock)
 	bool cpu_intensive = pwq->wq->flags & WQ_CPU_INTENSIVE;
 	int work_color;
 	struct worker *collision;
-
 #ifdef CONFIG_LOCKDEP
 	/*
 	 * It is permissible to free the struct work_struct from
@@ -2165,11 +2145,9 @@ __acquires(&pool->lock)
 	 * flush_work() and complete() primitives (except for single-threaded
 	 * workqueues), so hiding them isn't a problem.
 	 */
-
 	lockdep_invariant_state(true);
 	trace_workqueue_execute_start(work);
 	worker->current_func(work);
-
 	/*
 	 * While we must be careful to not use "work" after this, the trace
 	 * point will only record its address.
@@ -3251,9 +3229,6 @@ static void copy_workqueue_attrs(struct workqueue_attrs *to,
 				 const struct workqueue_attrs *from)
 {
 	to->nice = from->nice;
-#ifdef OPLUS_FEATURE_SCHED_ASSIST
-	to->ux_state = from->ux_state;
-#endif
 	cpumask_copy(to->cpumask, from->cpumask);
 	/*
 	 * Unlike hash and equality test, this function doesn't ignore
@@ -3269,9 +3244,6 @@ static u32 wqattrs_hash(const struct workqueue_attrs *attrs)
 	u32 hash = 0;
 
 	hash = jhash_1word(attrs->nice, hash);
-#ifdef OPLUS_FEATURE_SCHED_ASSIST
-	hash = jhash_1word(attrs->ux_state, hash);
-#endif
 	hash = jhash(cpumask_bits(attrs->cpumask),
 		     BITS_TO_LONGS(nr_cpumask_bits) * sizeof(long), hash);
 	return hash;
@@ -3283,10 +3255,6 @@ static bool wqattrs_equal(const struct workqueue_attrs *a,
 {
 	if (a->nice != b->nice)
 		return false;
-#ifdef OPLUS_FEATURE_SCHED_ASSIST
-	if (a->ux_state != b->ux_state)
-		return false;
-#endif
 	if (!cpumask_equal(a->cpumask, b->cpumask))
 		return false;
 	return true;
@@ -3509,15 +3477,21 @@ static void pwq_unbound_release_workfn(struct work_struct *work)
 						  unbound_release_work);
 	struct workqueue_struct *wq = pwq->wq;
 	struct worker_pool *pool = pwq->pool;
-	bool is_last;
+	bool is_last = false;
 
-	if (WARN_ON_ONCE(!(wq->flags & WQ_UNBOUND)))
-		return;
+	/*
+	 * when @pwq is not linked, it doesn't hold any reference to the
+	 * @wq, and @wq is invalid to access.
+	 */
+	if (!list_empty(&pwq->pwqs_node)) {
+		if (WARN_ON_ONCE(!(wq->flags & WQ_UNBOUND)))
+			return;
 
-	mutex_lock(&wq->mutex);
-	list_del_rcu(&pwq->pwqs_node);
-	is_last = list_empty(&wq->pwqs);
-	mutex_unlock(&wq->mutex);
+		mutex_lock(&wq->mutex);
+		list_del_rcu(&pwq->pwqs_node);
+		is_last = list_empty(&wq->pwqs);
+		mutex_unlock(&wq->mutex);
+	}
 
 	mutex_lock(&wq_pool_mutex);
 	put_unbound_pool(pool);
@@ -3563,17 +3537,24 @@ static void pwq_adjust_max_active(struct pool_workqueue *pwq)
 	 * is updated and visible.
 	 */
 	if (!freezable || !workqueue_freezing) {
+		bool kick = false;
+
 		pwq->max_active = wq->saved_max_active;
 
 		while (!list_empty(&pwq->delayed_works) &&
-		       pwq->nr_active < pwq->max_active)
+		       pwq->nr_active < pwq->max_active) {
 			pwq_activate_first_delayed(pwq);
+			kick = true;
+		}
 
 		/*
 		 * Need to kick a worker after thawed or an unbound wq's
-		 * max_active is bumped.  It's a slow path.  Do it always.
+		 * max_active is bumped. In realtime scenarios, always kicking a
+		 * worker will cause interference on the isolated cpu cores, so
+		 * let's kick iff work items were activated.
 		 */
-		wake_up_worker(pwq->pool);
+		if (kick)
+			wake_up_worker(pwq->pool);
 	} else {
 		pwq->max_active = 0;
 	}
@@ -3988,11 +3969,7 @@ out_unlock:
 
 static int alloc_and_link_pwqs(struct workqueue_struct *wq)
 {
-#ifdef OPLUS_FEATURE_SCHED_ASSIST
-	int highpri = (wq->flags & WQ_UX) ? UX_WORKER_POOL_INDEX : (wq->flags & WQ_HIGHPRI) ? 1 : 0;
-#else
 	bool highpri = wq->flags & WQ_HIGHPRI;
-#endif
 	int cpu, ret;
 
 	if (!(wq->flags & WQ_UNBOUND)) {
@@ -4060,11 +4037,7 @@ static int init_rescuer(struct workqueue_struct *wq)
 		kfree(rescuer);
 		return ret;
 	}
-#ifdef OPLUS_FEATURE_SCHED_ASSIST
-	if (wq->flags & WQ_UX) {
-		rescuer->task->ux_state = 1;
-	}
-#endif
+
 	wq->rescuer = rescuer;
 	kthread_bind_mask(rescuer->task, cpu_possible_mask);
 	wake_up_process(rescuer->task);
@@ -4109,11 +4082,6 @@ struct workqueue_struct *__alloc_workqueue_key(const char *fmt,
 		wq->unbound_attrs = alloc_workqueue_attrs(GFP_KERNEL);
 		if (!wq->unbound_attrs)
 			goto err_free_wq;
-#ifdef OPLUS_FEATURE_SCHED_ASSIST
-		if (flags & WQ_UX) {
-			wq->unbound_attrs->ux_state = 1;
-		}
-#endif
 	}
 
 	va_start(args, lock_name);
@@ -4486,11 +4454,7 @@ static void pr_cont_pool_info(struct worker_pool *pool)
 	pr_cont(" cpus=%*pbl", nr_cpumask_bits, pool->attrs->cpumask);
 	if (pool->node != NUMA_NO_NODE)
 		pr_cont(" node=%d", pool->node);
-#ifdef OPLUS_FEATURE_SCHED_ASSIST
-	pr_cont(" flags=0x%x nice=%d ux=%d", pool->flags, pool->attrs->nice, pool->attrs->ux_state);
-#else
 	pr_cont(" flags=0x%x nice=%d", pool->flags, pool->attrs->nice);
-#endif
 }
 
 static void pr_cont_work(bool comma, struct work_struct *work)
@@ -5077,9 +5041,13 @@ static int workqueue_apply_unbound_cpumask(void)
 	list_for_each_entry(wq, &workqueues, list) {
 		if (!(wq->flags & WQ_UNBOUND))
 			continue;
+
 		/* creating multiple pwqs breaks ordering guarantee */
-		if (wq->flags & __WQ_ORDERED)
-			continue;
+		if (!list_empty(&wq->pwqs)) {
+			if (wq->flags & __WQ_ORDERED_EXPLICIT)
+				continue;
+			wq->flags &= ~__WQ_ORDERED;
+		}
 
 		ctx = apply_wqattrs_prepare(wq, wq->unbound_attrs);
 		if (!ctx) {
@@ -5551,6 +5519,7 @@ static void wq_watchdog_timer_fn(unsigned long data)
 {
 	unsigned long thresh = READ_ONCE(wq_watchdog_thresh) * HZ;
 	bool lockup_detected = false;
+	unsigned long now = jiffies;
 	struct worker_pool *pool;
 	int pi;
 
@@ -5564,6 +5533,12 @@ static void wq_watchdog_timer_fn(unsigned long data)
 
 		if (list_empty(&pool->worklist))
 			continue;
+
+		/*
+		 * If a virtual machine is stopped by the host it can look to
+		 * the watchdog like a stall.
+		 */
+		kvm_check_and_clear_guest_paused();
 
 		/* get the latest of pool and touched timestamps */
 		pool_ts = READ_ONCE(pool->watchdog_ts);
@@ -5583,12 +5558,12 @@ static void wq_watchdog_timer_fn(unsigned long data)
 		}
 
 		/* did we stall? */
-		if (time_after(jiffies, ts + thresh)) {
+		if (time_after(now, ts + thresh)) {
 			lockup_detected = true;
 			pr_emerg("BUG: workqueue lockup - pool");
 			pr_cont_pool_info(pool);
 			pr_cont(" stuck for %us!\n",
-				jiffies_to_msecs(jiffies - pool_ts) / 1000);
+				jiffies_to_msecs(now - pool_ts) / 1000);
 		}
 	}
 
@@ -5712,11 +5687,7 @@ static void __init wq_numa_init(void)
  */
 int __init workqueue_init_early(void)
 {
-#ifdef OPLUS_FEATURE_SCHED_ASSIST
-	int std_nice[NR_STD_WORKER_POOLS] = { 0, HIGHPRI_NICE_LEVEL, HIGHPRI_NICE_LEVEL };
-#else
 	int std_nice[NR_STD_WORKER_POOLS] = { 0, HIGHPRI_NICE_LEVEL };
-#endif
 	int i, cpu;
 
 	WARN_ON(__alignof__(struct pool_workqueue) < __alignof__(long long));
@@ -5735,11 +5706,6 @@ int __init workqueue_init_early(void)
 			BUG_ON(init_worker_pool(pool));
 			pool->cpu = cpu;
 			cpumask_copy(pool->attrs->cpumask, cpumask_of(cpu));
-#ifdef OPLUS_FEATURE_SCHED_ASSIST
-			if (UX_WORKER_POOL_INDEX == i) {
-				pool->attrs->ux_state = 1;
-			}
-#endif
 			pool->attrs->nice = std_nice[i++];
 			pool->node = cpu_to_node(cpu);
 
@@ -5755,11 +5721,6 @@ int __init workqueue_init_early(void)
 		struct workqueue_attrs *attrs;
 
 		BUG_ON(!(attrs = alloc_workqueue_attrs(GFP_KERNEL)));
-#ifdef OPLUS_FEATURE_SCHED_ASSIST
-		if (UX_WORKER_POOL_INDEX == i) {
-			attrs->ux_state = 1;
-		}
-#endif
 		attrs->nice = std_nice[i];
 		unbound_std_wq_attrs[i] = attrs;
 
@@ -5769,11 +5730,6 @@ int __init workqueue_init_early(void)
 		 * Turn off NUMA so that dfl_pwq is used for all nodes.
 		 */
 		BUG_ON(!(attrs = alloc_workqueue_attrs(GFP_KERNEL)));
-#ifdef OPLUS_FEATURE_SCHED_ASSIST
-		if (UX_WORKER_POOL_INDEX == i) {
-			attrs->ux_state = 1;
-		}
-#endif
 		attrs->nice = std_nice[i];
 		attrs->no_numa = true;
 		ordered_wq_attrs[i] = attrs;
@@ -5781,9 +5737,6 @@ int __init workqueue_init_early(void)
 
 	system_wq = alloc_workqueue("events", 0, 0);
 	system_highpri_wq = alloc_workqueue("events_highpri", WQ_HIGHPRI, 0);
-#ifdef OPLUS_FEATURE_SCHED_ASSIST
-	system_ux_wq = alloc_workqueue("events_ux", WQ_UX, 0);
-#endif
 	system_long_wq = alloc_workqueue("events_long", 0, 0);
 	system_unbound_wq = alloc_workqueue("events_unbound", WQ_UNBOUND,
 					    WQ_UNBOUND_MAX_ACTIVE);
@@ -5794,9 +5747,6 @@ int __init workqueue_init_early(void)
 	system_freezable_power_efficient_wq = alloc_workqueue("events_freezable_power_efficient",
 					      WQ_FREEZABLE | WQ_POWER_EFFICIENT,
 					      0);
-#ifdef OPLUS_FEATURE_SCHED_ASSIST
-	BUG_ON(!system_ux_wq);
-#endif
 	BUG_ON(!system_wq || !system_highpri_wq || !system_long_wq ||
 	       !system_unbound_wq || !system_freezable_wq ||
 	       !system_power_efficient_wq ||

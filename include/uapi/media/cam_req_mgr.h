@@ -1,6 +1,3 @@
-#if defined(OP_8150_ADAPT)
-#include "cam_req_mgr_op.h"
-#else
 #ifndef __UAPI_LINUX_CAM_REQ_MGR_H
 #define __UAPI_LINUX_CAM_REQ_MGR_H
 
@@ -38,7 +35,7 @@
  * Max handles supported by cam_req_mgr
  * It includes both session and device handles
  */
-#define CAM_REQ_MGR_MAX_HANDLES           64
+#define CAM_REQ_MGR_MAX_HANDLES           128
 #define CAM_REQ_MGR_MAX_HANDLES_V2        128
 #define MAX_LINKS_PER_SESSION             2
 
@@ -467,5 +464,4 @@ struct cam_req_mgr_message {
 		struct cam_req_mgr_frame_msg frame_msg;
 	} u;
 };
-#endif
 #endif /* __UAPI_LINUX_CAM_REQ_MGR_H */

@@ -30,6 +30,7 @@
 #include <linux/kthread.h>
 #include <linux/mailbox_client.h>
 #include <linux/ipc_logging.h>
+#include <linux/suspend.h>
 #include <soc/qcom/subsystem_notif.h>
 
 #include "rpmsg_internal.h"
@@ -62,6 +63,8 @@ do {									  \
 
 #define RPM_GLINK_CID_MIN	1
 #define RPM_GLINK_CID_MAX	65536
+
+static int should_wake;
 
 struct glink_msg {
 	__le16 cmd;
@@ -275,6 +278,10 @@ static struct glink_channel *qcom_glink_alloc_channel(struct qcom_glink *glink,
 
 	channel->glink = glink;
 	channel->name = kstrdup(name, GFP_KERNEL);
+	if (!channel->name) {
+		kfree(channel);
+		return ERR_PTR(-ENOMEM);
+	}
 
 	init_completion(&channel->open_req);
 	init_completion(&channel->open_ack);
@@ -1013,6 +1020,7 @@ static int qcom_glink_rx_data(struct qcom_glink *glink, size_t avail)
 			dev_err(glink->dev,
 				"no intent found for channel %s intent %d",
 				channel->name, liid);
+			ret = -ENOENT;
 			goto advance_rx;
 		}
 	}
@@ -1084,6 +1092,7 @@ static void qcom_glink_handle_intent(struct qcom_glink *glink,
 	spin_unlock_irqrestore(&glink->idr_lock, flags);
 	if (!channel) {
 		dev_err(glink->dev, "intents for non-existing channel\n");
+		qcom_glink_rx_advance(glink, ALIGN(msglen, 8));
 		return;
 	}
 
@@ -1194,6 +1203,10 @@ static irqreturn_t qcom_glink_native_intr(int irq, void *data)
 	unsigned int cmd;
 	int ret = 0;
 
+	if (should_wake) {
+		should_wake = false;
+		pm_system_wakeup();
+	}
 	/* To wakeup any blocking writers */
 	wake_up_all(&glink->tx_avail_notify);
 
@@ -1661,6 +1674,7 @@ static void qcom_glink_rpdev_release(struct device *dev)
 	struct glink_channel *channel = to_glink_channel(rpdev->ept);
 
 	channel->rpdev = NULL;
+	kfree(rpdev->driver_override);
 	kfree(rpdev);
 }
 
@@ -1763,7 +1777,7 @@ static void qcom_glink_rx_close(struct qcom_glink *glink, unsigned int rcid)
 	kthread_cancel_work_sync(&channel->intent_work);
 
 	if (channel->rpdev) {
-		strlcpy(chinfo.name, channel->name, sizeof(chinfo.name));
+		strscpy_pad(chinfo.name, channel->name, sizeof(chinfo.name));
 		chinfo.src = RPMSG_ADDR_ANY;
 		chinfo.dst = RPMSG_ADDR_ANY;
 
@@ -1966,11 +1980,7 @@ static void qcom_glink_cancel_rx_work(struct qcom_glink *glink)
 	list_for_each_entry_safe(dcmd, tmp, &glink->rx_queue, node)
 		kfree(dcmd);
 }
-#ifdef  OPLUS_FEATURE_MODEM_DATA_NWPOWER
-#define GLINK_NATIVE_IRQ_NUM_MAX 10
-#define GLINK_NATIVE_IRQ_NAME_LEN 24
-static char glink_native_irq_names[GLINK_NATIVE_IRQ_NUM_MAX][GLINK_NATIVE_IRQ_NAME_LEN];
-#endif/*VENDOR_EDIT*/
+
 struct qcom_glink *qcom_glink_native_probe(struct device *dev,
 					   unsigned long features,
 					   struct qcom_glink_pipe *rx,
@@ -1984,12 +1994,6 @@ struct qcom_glink *qcom_glink_native_probe(struct device *dev,
 	int size;
 	int irq;
 	int ret;
-
-#ifdef OPLUS_FEATURE_MODEM_DATA_NWPOWER
-		static int glink_native_irq_index = 1;
-		char *glink_native_irq_name = glink_native_irq_names[0];
-		snprintf(glink_native_irq_names[0], GLINK_NATIVE_IRQ_NAME_LEN, "glink-native");
-#endif/*VENDOR_EDIT*/
 
 	glink = devm_kzalloc(dev, sizeof(*glink), GFP_KERNEL);
 	if (!glink)
@@ -2051,25 +2055,11 @@ struct qcom_glink *qcom_glink_native_probe(struct device *dev,
 		irqflags = IRQF_TRIGGER_RISING;
 	else
 		irqflags = IRQF_NO_SUSPEND | IRQF_SHARED;
-		
-#ifndef OPLUS_FEATURE_MODEM_DATA_NWPOWER
+
 	ret = devm_request_irq(dev, irq,
 			       qcom_glink_native_intr,
 			       irqflags,
 			       "glink-native", glink);
-#else
-		if(glink_native_irq_index < GLINK_NATIVE_IRQ_NUM_MAX){
-			snprintf(glink_native_irq_names[glink_native_irq_index], GLINK_NATIVE_IRQ_NAME_LEN, "glink-native-%s", glink->name);
-			glink_native_irq_name = glink_native_irq_names[glink_native_irq_index];
-			glink_native_irq_index++;
-		}
-		ret = devm_request_irq(dev, irq,
-					   qcom_glink_native_intr,
-					   IRQF_NO_SUSPEND | IRQF_SHARED,
-					   glink_native_irq_name, glink);
-		pr_err("qcom_glink_native_probe: def:%s final:%s index:%d irq:%d\n", glink_native_irq_names[0], glink_native_irq_name, glink_native_irq_index,irq);
-#endif/*VENDOR_EDIT*/
-
 	if (ret) {
 		dev_err(dev, "failed to request IRQ\n");
 		goto unregister;
@@ -2171,6 +2161,26 @@ void qcom_glink_native_unregister(struct qcom_glink *glink)
 	device_unregister(glink->dev);
 }
 EXPORT_SYMBOL_GPL(qcom_glink_native_unregister);
+
+static int qcom_glink_suspend_no_irq(struct device *dev)
+{
+	should_wake = true;
+
+	return 0;
+}
+
+static int qcom_glink_resume_no_irq(struct device *dev)
+{
+	should_wake = false;
+
+	return 0;
+}
+
+const struct dev_pm_ops glink_native_pm_ops = {
+	.suspend_noirq = qcom_glink_suspend_no_irq,
+	.resume_noirq = qcom_glink_resume_no_irq,
+};
+EXPORT_SYMBOL(glink_native_pm_ops);
 
 MODULE_DESCRIPTION("Qualcomm GLINK driver");
 MODULE_LICENSE("GPL v2");

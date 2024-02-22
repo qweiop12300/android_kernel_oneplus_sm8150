@@ -139,6 +139,7 @@ struct dsi_backlight_config {
 	u32 bl_level;
 	u32 bl_scale;
 	u32 bl_scale_ad;
+	bool bl_inverted_dbv;
 
 	int en_gpio;
 	/* PWM params */
@@ -164,17 +165,9 @@ struct dsi_panel_reset_config {
 	int disp_en_gpio;
 	int lcd_mode_sel_gpio;
 	u32 mode_sel_state;
-	#ifdef OPLUS_BUG_STABILITY
-	int lcd_vci_gpio;
+#ifdef OPLUS_BUG_STABILITY
 	int err_flag_gpio;
-	u32 lcd_delay_vci_gpio;
-	u32 lcd_delay_disp_en_gpio;
-	u32 lcd_delay_reset_gpio;
-	u32 lcd_delay_mode_sel_gpio;
-	u32 lcd_delay_set_pinctrl_state;
-	u32 lcd_delay_enable_regulator;
-	u32 lcd_delay_lp11_state;
-	#endif /* OPLUS_BUG_STABILITY */
+#endif /* OPLUS_BUG_STABILITY */
 };
 
 enum esd_check_status_mode {
@@ -206,19 +199,13 @@ struct dsi_panel_oplus_privite {
 	bool skip_mipi_last_cmd;
 	bool bl_interpolate_nosub;
 	bool is_pxlw_iris5;
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
-	bool is_aod_ramless;
-#endif /* OPLUS_FEATURE_AOD_RAMLESS */
 	bool is_osc_support;
-	bool is_19781_lcd;
 	u32 osc_clk_mode0_rate;
 	u32 osc_clk_mode1_rate;
 	u32 osc_clk_current_rate;
 	int seed_bl_max;
 	struct oplus_brightness_alpha *bl_remap;
 	int bl_remap_count;
-	u32 pll_delay;
-	u32 prj_flag;
 };
 #endif /* OPLUS_BUG_STABILITY */
 
@@ -281,14 +268,11 @@ struct dsi_panel {
 	bool is_hbm_enabled;
 	/* Fix aod flash problem */
 	bool need_power_on_backlight;
-  	bool reset_timing;
 	struct oplus_brightness_alpha *ba_seq;
 	struct oplus_brightness_alpha *dc_ba_seq;
 	int ba_count;
 	int dc_ba_count;
 	struct dsi_panel_oplus_privite oplus_priv;
-	bool is_err_flag_irq_enabled;
-	bool err_flag_status;
         struct delayed_work gamma_read_work;
 //#endif /* OPLUS_BUG_STABILITY */
 };
@@ -410,12 +394,13 @@ struct dsi_panel *dsi_panel_ext_bridge_get(struct device *parent,
 int dsi_panel_parse_esd_reg_read_configs(struct dsi_panel *panel);
 
 void dsi_panel_ext_bridge_put(struct dsi_panel *panel);
+
 //#ifdef OPLUS_BUG_STABILITY
 int dsi_panel_tx_cmd_set(struct dsi_panel *panel, enum dsi_cmd_set_type type);
 int dsi_panel_gamma_read_address_setting(struct dsi_panel *panel, u16 read_number);
 int dsi_panel_parse_gamma_cmd_sets(void);
 int dsi_panel_tx_gamma_cmd_set(struct dsi_panel *panel, enum dsi_gamma_cmd_set_type type);
 extern int mipi_dsi_dcs_write_c1(struct mipi_dsi_device *dsi, u16 read_number);
-
 //#endif /* OPLUS_BUG_STABILITY */
+
 #endif /* _DSI_PANEL_H_ */

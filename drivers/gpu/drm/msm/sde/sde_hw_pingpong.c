@@ -19,7 +19,7 @@
 #include "sde_dbg.h"
 #include "sde_kms.h"
 #ifdef OPLUS_BUG_STABILITY
-#include "oplus_dsi_support.h"
+#include "../oplus/oplus_dsi_support.h"
 #endif /* OPLUS_BUG_STABILITY */
 
 #define PP_TEAR_CHECK_EN                0x000
@@ -195,7 +195,6 @@ static int sde_hw_pp_setup_te_config(struct sde_hw_pingpong *pp,
 #else /*OPLUS_BUG_STABILITY*/
 	cfg |= te->vsync_count;
 #endif /*OPLUS_BUG_STABILITY*/
-
 
 	SDE_REG_WRITE(c, PP_SYNC_CONFIG_VSYNC, cfg);
 	SDE_REG_WRITE(c, PP_SYNC_CONFIG_HEIGHT, te->sync_cfg_height);

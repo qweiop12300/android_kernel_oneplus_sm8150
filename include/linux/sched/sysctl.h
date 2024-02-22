@@ -30,6 +30,7 @@ extern unsigned int sysctl_sched_sync_hint_enable;
 extern unsigned int sysctl_sched_cstate_aware;
 extern unsigned int sysctl_sched_wakeup_granularity;
 extern unsigned int sysctl_sched_child_runs_first;
+extern unsigned int sysctl_sched_energy_aware;
 extern unsigned int sysctl_sched_capacity_margin_up[MAX_MARGIN_LEVELS];
 extern unsigned int sysctl_sched_capacity_margin_down[MAX_MARGIN_LEVELS];
 #ifdef CONFIG_SCHED_WALT
@@ -127,12 +128,6 @@ extern int sysctl_numa_balancing(struct ctl_table *table, int write,
 extern int sysctl_schedstats(struct ctl_table *table, int write,
 				 void __user *buffer, size_t *lenp,
 				 loff_t *ppos);
-#ifdef OPLUS_FEATURE_SCHED_ASSIST
-extern int sysctl_sched_assist_scene_handler(struct ctl_table *table, int write,
-	void __user *buffer, size_t *lenp, loff_t *ppos);
-extern int sysctl_sched_assist_input_boost_ctrl_handler(struct ctl_table *table, int write,
-	void __user *buffer, size_t *lenp, loff_t *ppos);
-#endif /* OPLUS_FEATURE_SCHED_ASSIST */
 
 #ifdef CONFIG_SCHED_WALT
 extern int sched_little_cluster_coloc_fmin_khz_handler(struct ctl_table *table,

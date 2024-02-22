@@ -285,9 +285,6 @@ struct sde_encoder_virt {
 	struct kthread_work input_event_work;
 	struct kthread_work esd_trigger_work;
 	struct input_handler *input_handler;
-#ifdef OPLUS_BUG_STABILITY
-	bool input_handler_init;
-#endif /* OPLUS_BUG_STABILITY */
 	bool input_handler_registered;
 	struct msm_display_topology topology;
 	bool vblank_enabled;
@@ -1937,14 +1934,7 @@ static int _sde_encoder_update_rsc_client(
 	u32 qsync_mode = 0;
 	struct msm_drm_private *priv;
 	struct sde_kms *sde_kms;
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
-	int  lp_mode = -1;
-	struct list_head *connector_list;
-	struct drm_connector *conn = NULL, *conn_iter;
 
-	struct dsi_display *display = get_main_display();
-
-#endif /* OPLUS_FEATURE_AOD_RAMLESS */
 	if (!drm_enc || !drm_enc->dev) {
 		SDE_ERROR("invalid encoder arguments\n");
 		return -EINVAL;
@@ -1978,11 +1968,6 @@ static int _sde_encoder_update_rsc_client(
 	}
 
 	sde_kms = to_sde_kms(priv->kms);
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
-	if ( display && display->panel && display->panel->oplus_priv.prj_flag ) {
-		connector_list = &sde_kms->dev->mode_config.connector_list;
-	}
-#endif /* OPLUS_FEATURE_AOD_RAMLESS */
 	/**
 	 * only primary command mode panel without Qsync can request CMD state.
 	 * all other panels/displays can request for VID state including
@@ -2022,22 +2007,8 @@ static int _sde_encoder_update_rsc_client(
 	if (IS_SDE_MAJOR_SAME(sde_kms->core_rev, SDE_HW_VER_620) &&
 			(rsc_state == SDE_RSC_VID_STATE))
 		rsc_state = SDE_RSC_CLK_STATE;
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
-	if ( display && display->panel && display->panel->oplus_priv.prj_flag ) {
-		list_for_each_entry(conn_iter, connector_list, head)
-			if (conn_iter->encoder == drm_enc)
-				conn = conn_iter;
 
-		if (conn && conn->state) {
-			lp_mode = sde_connector_get_property(conn->state, CONNECTOR_PROP_LP);
-			if ((lp_mode == SDE_MODE_DPMS_LP1 || lp_mode == SDE_MODE_DPMS_LP2) && enable)
-				rsc_state = SDE_RSC_CLK_STATE;
-                }
-			SDE_EVT32(rsc_state, qsync_mode, lp_mode);
-	} else {
-		SDE_EVT32(rsc_state, qsync_mode);
-	}
-#endif /* OPLUS_FEATURE_AOD_RAMLESS */
+	SDE_EVT32(rsc_state, qsync_mode);
 
 	prefill_lines = config ? mode_info.prefill_lines +
 		config->inline_rotate_prefill : mode_info.prefill_lines;
@@ -2125,15 +2096,6 @@ static int _sde_encoder_update_rsc_client(
 		if (crtc->base.id == wait_vblank_crtc_id) {
 			ret = sde_encoder_wait_for_event(drm_enc,
 					MSM_ENC_VBLANK);
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
-			if ( display && display->panel && display->panel->oplus_priv.prj_flag ) {
-				if (ret == -EWOULDBLOCK) {
-					SDE_EVT32(DRMID(drm_enc), wait_vblank_crtc_id, crtc->base.id);
-					msleep(PRIMARY_VBLANK_WORST_CASE_MS);
-					ret = 0;
-				}
-			}
-#endif /* OPLUS_FEATURE_AOD_RAMLESS */
 		} else if (primary_crtc->state->active &&
 				!drm_atomic_crtc_needs_modeset(
 						primary_crtc->state)) {
@@ -2438,6 +2400,8 @@ static int sde_encoder_resource_control(struct drm_encoder *drm_enc,
 			SDE_DEBUG_ENC(sde_enc, "sw_event:%d, work cancelled\n",
 					sw_event);
 
+		msm_idle_set_state(drm_enc, true);
+
 		mutex_lock(&sde_enc->rc_lock);
 
 		/* return if the resource control is already in ON state */
@@ -2541,6 +2505,8 @@ static int sde_encoder_resource_control(struct drm_encoder *drm_enc,
 			idle_pc_duration = IDLE_SHORT_TIMEOUT;
 		else
 			idle_pc_duration = IDLE_POWERCOLLAPSE_DURATION;
+
+		msm_idle_set_state(drm_enc, false);
 
 		if (!autorefresh_enabled)
 			kthread_mod_delayed_work(
@@ -3167,9 +3133,6 @@ static int _sde_encoder_input_handler(
 
 	sde_enc->input_handler = input_handler;
 	sde_enc->input_handler_registered = false;
-#ifdef OPLUS_BUG_STABILITY
-	sde_enc->input_handler_init = false;
-#endif /* OPLUS_BUG_STABILITY */
 
 	return rc;
 }
@@ -3343,13 +3306,7 @@ static void sde_encoder_virt_enable(struct drm_encoder *drm_enc)
 			SDE_ERROR(
 			"input handler registration failed, rc = %d\n", ret);
 		else
-#ifdef OPLUS_BUG_STABILITY
-           {
 			sde_enc->input_handler_registered = true;
-            sde_enc->input_handler_init = true;
-           }
-#endif /* OPLUS_BUG_STABILITY */
-
 	}
 
 	if (!(msm_is_mode_seamless_vrr(cur_mode)
@@ -3452,16 +3409,8 @@ static void sde_encoder_virt_disable(struct drm_encoder *drm_enc)
 	sde_encoder_wait_for_event(drm_enc, MSM_ENC_TX_COMPLETE);
 
 	if (sde_enc->input_handler && sde_enc->input_handler_registered) {
-	#ifdef OPLUS_BUG_STABILITY
-	    if (sde_enc->input_handler_init) {
-			input_unregister_handler(sde_enc->input_handler);
-			sde_enc->input_handler_init = false;
-	    }
-			sde_enc->input_handler_registered = false;
-	#else
-	    input_unregister_handler(sde_enc->input_handler);
-	    sde_enc->input_handler_registered = false;
-	#endif /* OPLUS_BUG_STABILITY */
+		input_unregister_handler(sde_enc->input_handler);
+		sde_enc->input_handler_registered = false;
 	}
 
 	/*
@@ -4310,9 +4259,7 @@ void sde_encoder_trigger_kickoff_pending(struct drm_encoder *drm_enc)
 
 static void _sde_encoder_setup_dither(struct sde_encoder_phys *phys)
 {
-#ifdef OPLUS_BUG_STABILITY
-	void *dither_cfg;
-#endif /* OPLUS_BUG_STABILITY */
+	void *dither_cfg = NULL;
 	int ret = 0, rc, i = 0;
 	size_t len = 0;
 	enum sde_rm_topology_name topology;
@@ -4346,12 +4293,11 @@ static void _sde_encoder_setup_dither(struct sde_encoder_phys *phys)
 		return;
 	}
 
-#ifdef OPLUS_BUG_STABILITY
 	ret = sde_connector_get_dither_cfg(phys->connector,
-			phys->connector->state, &dither_cfg, &len);
+			phys->connector->state, &dither_cfg,
+			&len, sde_enc->idle_pc_restore);
 	if (ret)
 		return;
-#endif /* OPLUS_BUG_STABILITY */
 
 	if (TOPOLOGY_DUALPIPE_MERGE_MODE(topology)) {
 		for (i = 0; i < MAX_CHANNELS_PER_ENC; i++) {
@@ -4364,8 +4310,8 @@ static void _sde_encoder_setup_dither(struct sde_encoder_phys *phys)
 	} else {
 //#ifdef OPLUS_BUG_STABILITY
 		if (_sde_encoder_setup_dither_for_onscreenfingerprint(phys, dither_cfg, len))
+			phys->hw_pp->ops.setup_dither(phys->hw_pp, dither_cfg, len);
 //#endif /* OPLUS_BUG_STABILITY */
-		phys->hw_pp->ops.setup_dither(phys->hw_pp, dither_cfg, len);
 	}
 }
 
@@ -4912,10 +4858,10 @@ void sde_encoder_kickoff(struct drm_encoder *drm_enc, bool is_error)
 	}
 
 	SDE_ATRACE_END("encoder_kickoff");
+
 #ifdef OPLUS_BUG_STABILITY
    sde_connector_update_backlight(sde_enc->cur_master->connector, true);
 #endif /* OPLUS_BUG_STABILITY */
-
 }
 
 int sde_encoder_helper_reset_mixers(struct sde_encoder_phys *phys_enc,
@@ -5997,4 +5943,30 @@ void sde_encoder_recovery_events_handler(struct drm_encoder *encoder,
 
 	sde_enc = to_sde_encoder_virt(encoder);
 	sde_enc->recovery_events_enabled = enabled;
+}
+
+void sde_encoder_trigger_early_wakeup(struct drm_encoder *drm_enc)
+{
+	struct sde_encoder_virt *sde_enc = NULL;
+	struct msm_drm_private *priv = NULL;
+
+	priv = drm_enc->dev->dev_private;
+	sde_enc = to_sde_encoder_virt(drm_enc);
+	if (!sde_enc->crtc || (sde_enc->crtc->index
+			>= ARRAY_SIZE(priv->disp_thread))) {
+		SDE_DEBUG_ENC(sde_enc,
+			"invalid cached CRTC: %d or crtc index: %d\n",
+			sde_enc->crtc == NULL,
+			sde_enc->crtc ? sde_enc->crtc->index : -EINVAL);
+		return;
+	}
+
+	SDE_ATRACE_BEGIN("sde_encoder_resource_control");
+	if (sde_enc->rc_state == SDE_ENC_RC_STATE_IDLE) {
+		sde_encoder_resource_control(drm_enc,
+					     SDE_ENC_RC_EVENT_EARLY_WAKEUP);
+
+	}
+	SDE_ATRACE_END("sde_encoder_resource_control");
+
 }

@@ -30,6 +30,7 @@
 #include <linux/mmc/slot-gpio.h>
 
 #include "core.h"
+#include "crypto.h"
 #include "host.h"
 #include "slot-gpio.h"
 #include "pwrseq.h"
@@ -198,6 +199,7 @@ void mmc_host_clk_hold(struct mmc_host *host)
 	spin_unlock_irqrestore(&host->clk_lock, flags);
 	mutex_unlock(&host->clk_gate_mutex);
 }
+EXPORT_SYMBOL(mmc_host_clk_hold);
 
 /**
  *	mmc_host_may_gate_card - check if this card may be gated
@@ -247,6 +249,7 @@ void mmc_host_clk_release(struct mmc_host *host)
 				      msecs_to_jiffies(host->clkgate_delay));
 	spin_unlock_irqrestore(&host->clk_lock, flags);
 }
+EXPORT_SYMBOL(mmc_host_clk_release);
 
 /**
  *	mmc_host_clk_rate - get current clock frequency setting
@@ -478,6 +481,16 @@ int mmc_retune(struct mmc_host *host)
 			host->ops->prepare_hs400_tuning(host, &host->ios);
 	}
 
+	/*
+	 * Timing should be adjusted to the HS400 target
+	 * operation frequency for tuning process.
+	 * Similar handling is also done in mmc_hs200_tuning()
+	 * This is handled properly in sdhci-msm.c from msm-5.4 onwards.
+	 */
+	if (host->card->mmc_avail_type & EXT_CSD_CARD_TYPE_HS400 &&
+		host->ios.bus_width == MMC_BUS_WIDTH_8)
+		mmc_set_timing(host, MMC_TIMING_MMC_HS400);
+
 	err = mmc_execute_tuning(host->card);
 	if (err)
 		goto out;
@@ -693,9 +706,6 @@ struct mmc_host *mmc_alloc_host(int extra, struct device *dev)
 
 	dev_set_name(&host->class_dev, "mmc%d", host->index);
 
-#ifdef VENDOR_EDIT
-        host->card_stuck_in_programing_status = false;
-#endif /* VENDOR_EDIT */
 	host->parent = dev;
 	host->class_dev.parent = dev;
 	host->class_dev.class = &mmc_host_class;
@@ -721,9 +731,7 @@ struct mmc_host *mmc_alloc_host(int extra, struct device *dev)
 	setup_timer(&host->retune_timer, mmc_retune_timer, (unsigned long)host);
 
 	mutex_init(&host->rpmb_req_mutex);
-#ifdef VENDOR_EDIT
-    host->detect_change_retry = 5;
-#endif /* VENDOR_EDIT */
+
 	/*
 	 * By default, hosts do not support SGIO or large requests.
 	 * They have to set these according to their abilities.
@@ -955,6 +963,16 @@ static struct attribute_group dev_attr_grp = {
 	.attrs = dev_attrs,
 };
 
+static int mmc_validate_host_caps(struct mmc_host *host)
+{
+	if (host->caps & MMC_CAP_SDIO_IRQ && !host->ops->enable_sdio_irq) {
+		dev_warn(host->parent, "missing ->enable_sdio_irq() ops\n");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 /**
  *	mmc_add_host - initialise host hardware
  *	@host: mmc host
@@ -967,8 +985,9 @@ int mmc_add_host(struct mmc_host *host)
 {
 	int err;
 
-	WARN_ON((host->caps & MMC_CAP_SDIO_IRQ) &&
-		!host->ops->enable_sdio_irq);
+	err = mmc_validate_host_caps(host);
+	if (err)
+		return err;
 
 	err = device_add(&host->class_dev);
 	if (err)
@@ -1052,6 +1071,8 @@ EXPORT_SYMBOL(mmc_remove_host);
  */
 void mmc_free_host(struct mmc_host *host)
 {
+	cancel_delayed_work_sync(&host->detect);
+	mmc_crypto_free_host(host);
 	mmc_pwrseq_free(host);
 	put_device(&host->class_dev);
 }

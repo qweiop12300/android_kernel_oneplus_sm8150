@@ -216,26 +216,6 @@ extern unsigned int kobjsize(const void *objp);
 #define VM_NOHUGEPAGE	0x40000000	/* MADV_NOHUGEPAGE marked this vma */
 #define VM_MERGEABLE	0x80000000	/* KSM may merge identical pages */
 
-#if defined(OPLUS_FEATURE_VIRTUAL_RESERVE_MEMORY) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
-/*
- * new vm flags of vma in reserved area
- */
-#define VM_BACKUP_CREATE 0x100000000UL	/* Created backup vma for emergency */
-#define VM_BACKUP_ALLOC  0x200000000UL	/* Alloced memory from backup vma */
-
-#define BACKUP_ALLOC_FLAG(vm_flags) ((vm_flags) & VM_BACKUP_ALLOC)
-#define BACKUP_CREATE_FLAG(vm_flags) ((vm_flags) & VM_BACKUP_CREATE)
-#endif
-
-#if defined(OPLUS_FEATURE_VIRTUAL_RESERVE_MEMORY) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
-/* new vm flags of vma in reserved area */
-#define VM_BACKUP_CREATE 0x100000000UL	/* Created backup vma for emergency */
-#define VM_BACKUP_ALLOC  0x200000000UL	/* Alloced memory from backup vma */
-
-#define BACKUP_ALLOC_FLAG(vm_flags) ((vm_flags) & VM_BACKUP_ALLOC)
-#define BACKUP_CREATE_FLAG(vm_flags) ((vm_flags) & VM_BACKUP_CREATE)
-#endif
-
 #ifdef CONFIG_ARCH_USES_HIGH_VMA_FLAGS
 #define VM_HIGH_ARCH_BIT_0	32	/* bit only usable on 64-bit architectures */
 #define VM_HIGH_ARCH_BIT_1	33	/* bit only usable on 64-bit architectures */
@@ -592,7 +572,13 @@ static inline void *kvmalloc_array(size_t n, size_t size, gfp_t flags)
 }
 
 extern void kvfree(const void *addr);
+extern void kvfree_sensitive(const void *addr, size_t len);
 
+/*
+ * Mapcount of compound page as a whole, does not include mapped sub-pages.
+ *
+ * Must be called only for compound pages or any their tail sub-pages.
+ */
 static inline int compound_mapcount(struct page *page)
 {
 	VM_BUG_ON_PAGE(!PageCompound(page), page);
@@ -612,10 +598,16 @@ static inline void page_mapcount_reset(struct page *page)
 
 int __page_mapcount(struct page *page);
 
+/*
+ * Mapcount of 0-order page; when compound sub-page, includes
+ * compound_mapcount().
+ *
+ * Result is undefined for pages which cannot be mapped into userspace.
+ * For example SLAB or special types of pages. See function page_has_type().
+ * They use this place in struct page differently.
+ */
 static inline int page_mapcount(struct page *page)
 {
-	VM_BUG_ON_PAGE(PageSlab(page), page);
-
 	if (unlikely(PageCompound(page)))
 		return __page_mapcount(page);
 	return atomic_read(&page->_mapcount) + 1;
@@ -1427,6 +1419,13 @@ static inline void unmap_shared_mapping_range(struct address_space *mapping,
 #ifdef CONFIG_SPECULATIVE_PAGE_FAULT
 static inline void vm_write_begin(struct vm_area_struct *vma)
 {
+	/*
+	 * Isolated vma might be freed without exclusive mmap_lock but
+	 * speculative page fault handler still needs to know it was changed.
+	 */
+	if (!RB_EMPTY_NODE(&vma->vm_rb))
+		WARN_ON_ONCE(!rwsem_is_locked(&(vma->vm_mm)->mmap_sem));
+
 	write_seqcount_begin(&vma->vm_sequence);
 }
 static inline void vm_write_begin_nested(struct vm_area_struct *vma,
@@ -2341,6 +2340,8 @@ extern int install_special_mapping(struct mm_struct *mm,
 				   unsigned long addr, unsigned long len,
 				   unsigned long flags, struct page **pages);
 
+unsigned long randomize_page(unsigned long start, unsigned long range);
+
 extern unsigned long get_unmapped_area(struct file *, unsigned long, unsigned long, unsigned long, unsigned long);
 
 extern unsigned long mmap_region(struct file *file, unsigned long addr,
@@ -2430,7 +2431,7 @@ int __must_check write_one_page(struct page *page);
 void task_dirty_inc(struct task_struct *tsk);
 
 /* readahead.c */
-#define VM_MAX_READAHEAD	128	/* kbytes */
+#define VM_MAX_READAHEAD	512	/* kbytes */
 #define VM_MIN_READAHEAD	16	/* kbytes (includes current page) */
 
 int force_page_cache_readahead(struct address_space *mapping, struct file *filp,
@@ -2482,17 +2483,6 @@ static inline unsigned long vm_start_gap(struct vm_area_struct *vma)
 {
 	unsigned long vm_start = vma->vm_start;
 
-#if defined(OPLUS_FEATURE_VIRTUAL_RESERVE_MEMORY) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
-	if (BACKUP_ALLOC_FLAG(vma->vm_flags))
-		return vm_start;
-#endif
-
-#if defined(OPLUS_FEATURE_VIRTUAL_RESERVE_MEMORY) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
-	/* reserved vma check */
-	if (BACKUP_ALLOC_FLAG(vma->vm_flags))
-		return vm_start;
-#endif
-
 	if (vma->vm_flags & VM_GROWSDOWN) {
 		vm_start -= stack_guard_gap;
 		if (vm_start > vma->vm_start)
@@ -2504,17 +2494,6 @@ static inline unsigned long vm_start_gap(struct vm_area_struct *vma)
 static inline unsigned long vm_end_gap(struct vm_area_struct *vma)
 {
 	unsigned long vm_end = vma->vm_end;
-
-#if defined(OPLUS_FEATURE_VIRTUAL_RESERVE_MEMORY) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
-	/* reserved vma check */
-	if (BACKUP_ALLOC_FLAG(vma->vm_flags))
-		return vm_end;
-#endif
-
-#if defined(OPLUS_FEATURE_VIRTUAL_RESERVE_MEMORY) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
-	if (BACKUP_ALLOC_FLAG(vma->vm_flags))
-		return vm_end;
-#endif
 
 	if (vma->vm_flags & VM_GROWSUP) {
 		vm_end += stack_guard_gap;
@@ -2620,6 +2599,15 @@ static inline int vm_fault_to_errno(int vm_fault, int foll_flags)
 		return -EFAULT;
 	return 0;
 }
+
+#ifndef io_remap_pfn_range
+static inline int io_remap_pfn_range(struct vm_area_struct *vma,
+				     unsigned long addr, unsigned long pfn,
+				     unsigned long size, pgprot_t prot)
+{
+	return remap_pfn_range(vma, addr, pfn, size, pgprot_decrypted(prot));
+}
+#endif
 
 typedef int (*pte_fn_t)(pte_t *pte, pgtable_t token, unsigned long addr,
 			void *data);
@@ -2879,10 +2867,6 @@ struct reclaim_param {
 	int nr_to_reclaim;
 	/* pages reclaimed */
 	int nr_reclaimed;
-#if defined(OPLUS_FEATURE_PROCESS_RECLAIM) && defined(CONFIG_PROCESS_RECLAIM_ENHANCE)
-	bool inactive_lru;
-	struct task_struct *reclaimed_task;
-#endif
 };
 extern struct reclaim_param reclaim_task_anon(struct task_struct *task,
 		int nr_to_reclaim);

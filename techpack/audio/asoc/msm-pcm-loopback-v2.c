@@ -71,6 +71,7 @@ static u32 hfp_tx_mute;
 struct msm_pcm_pdata {
 	int perf_mode;
 };
+
 #ifdef OPLUS_FEATURE_KTV
 static bool is_ktv_mode(struct msm_pcm_loopback *pcm) {
 	struct snd_soc_pcm_runtime *soc_pcm_tx =

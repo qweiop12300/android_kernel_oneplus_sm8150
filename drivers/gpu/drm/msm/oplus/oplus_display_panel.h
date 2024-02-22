@@ -59,28 +59,6 @@ struct panel_ioctl_desc {
 	const char *name;
 };
 
-#define RAMLESS_AOD_PAYLOAD_SIZE	100
-#define RAMLESS_AOD_AREA_NUM		6
-struct panel_aod_area {
-	int x;
-	int y;
-	int w;
-	int h;
-	int color;
-	int bitdepth;
-	int mono;
-	int gray;
-};
-
-struct panel_aod_area_para {
-	struct panel_aod_area aod_area[RAMLESS_AOD_AREA_NUM];
-	uint32_t size;
-};
-struct hecate_info {
-	uint32_t display_id;
-	uint32_t kgsl_dump; /* 1 present kgsl fence timeout */
-};
-
 /*oplus ioctl case start*/
 #define PANEL_COMMOND_BASE 0x00
 #define PANEL_COMMOND_MAX  0x55
@@ -114,8 +92,6 @@ struct hecate_info {
 #define PANEL_IOCTL_SET_DIMLAYER_BL_EN        PANEL_IOW(0X21, unsigned int)
 #define PANEL_IOCTL_SET_FP_PRESS              PANEL_IOW(0x29, unsigned int)
 #define PANEL_IOCTL_GET_OPLUS_BRIGHTNESS      PANEL_IOWR(0x2B, unsigned int)
-#define PANEL_IOCTL_SET_AOD_AREA              PANEL_IOW(0x2E, struct panel_aod_area_para)
-#define PANEL_IOCTL_SET_HECATE_INFO           PANEL_IOW(0x54, struct hecate_info)
 
 /*oplus ioctl case end*/
 

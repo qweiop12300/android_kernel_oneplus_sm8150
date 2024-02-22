@@ -54,7 +54,7 @@
 #include "oplus_chargepump.h"
 #include <oplus_p922x.h>
 #include <oplus_p922x_fw.h>
-#include <soc/oplus/system/boot_mode.h>
+#include <soc/oplus/boot_mode.h>
 
 #define DEBUG_BY_FILE_OPS
 #define DEBUG_FASTCHG_BY_ADB

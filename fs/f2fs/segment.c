@@ -183,30 +183,6 @@ bool f2fs_need_SSR(struct f2fs_sb_info *sbi)
 			SM_I(sbi)->min_ssr_sections + reserved_sections(sbi));
 }
 
-block_t of2fs_seg_freefrag(struct f2fs_sb_info *sbi, unsigned int segno,
-				block_t* blocks, unsigned int n)
-{
-	struct seg_entry *se = get_seg_entry(sbi, segno);
-	unsigned long *cur_map = (unsigned long *)se->cur_valid_map;
-	unsigned int pos, pos0;
-	block_t total_blocks = 0;
-	// free and valid segment is not fragment
-	if (!se->valid_blocks || se->valid_blocks == sbi->blocks_per_seg)
-		return total_blocks;
-	pos0 = __find_rev_next_zero_bit(cur_map, sbi->blocks_per_seg, 0);
-	while (pos0 < sbi->blocks_per_seg) {
-		unsigned int blks, order;
-		pos = __find_rev_next_bit(cur_map, sbi->blocks_per_seg, pos0 + 1);
-		blks = pos - pos0;
-		order = ilog2(blks);
-		if (order < n)
-			blocks[order] += blks;
-		total_blocks += blks;
-		pos0 = __find_rev_next_zero_bit(cur_map, sbi->blocks_per_seg, pos + 1);
-	}
-	return total_blocks;
-}
-
 void f2fs_register_inmem_page(struct inode *inode, struct page *page)
 {
 	struct inmem_pages *new;
@@ -1243,7 +1219,7 @@ submit:
 	return err;
 }
 
-static struct discard_cmd *__insert_discard_tree(struct f2fs_sb_info *sbi,
+static void __insert_discard_tree(struct f2fs_sb_info *sbi,
 				struct block_device *bdev, block_t lstart,
 				block_t start, block_t len,
 				struct rb_node **insert_p,
@@ -1252,7 +1228,6 @@ static struct discard_cmd *__insert_discard_tree(struct f2fs_sb_info *sbi,
 	struct discard_cmd_control *dcc = SM_I(sbi)->dcc_info;
 	struct rb_node **p;
 	struct rb_node *parent = NULL;
-	struct discard_cmd *dc = NULL;
 	bool leftmost = true;
 
 	if (insert_p && insert_parent) {
@@ -1264,12 +1239,8 @@ static struct discard_cmd *__insert_discard_tree(struct f2fs_sb_info *sbi,
 	p = f2fs_lookup_rb_tree_for_insert(sbi, &dcc->root, &parent,
 							lstart, &leftmost);
 do_insert:
-	dc = __attach_discard_cmd(sbi, bdev, lstart, start, len, parent,
+	__attach_discard_cmd(sbi, bdev, lstart, start, len, parent,
 								p, leftmost);
-	if (!dc)
-		return NULL;
-
-	return dc;
 }
 
 static void __relocate_discard_cmd(struct discard_cmd_control *dcc,
@@ -3133,6 +3104,14 @@ void f2fs_allocate_data_block(struct f2fs_sb_info *sbi, struct page *page,
 		type = CURSEG_COLD_DATA;
 	}
 
+	/*
+	 * We need to wait for node_write to avoid block allocation during
+	 * checkpoint. This can only happen to quota writes which can cause
+	 * the below discard race condition.
+	 */
+	if (IS_DATASEG(type))
+		down_write(&sbi->node_write);
+
 	down_read(&SM_I(sbi)->curseg_lock);
 
 	mutex_lock(&curseg->curseg_mutex);
@@ -3197,6 +3176,9 @@ void f2fs_allocate_data_block(struct f2fs_sb_info *sbi, struct page *page,
 	mutex_unlock(&curseg->curseg_mutex);
 
 	up_read(&SM_I(sbi)->curseg_lock);
+
+	if (IS_DATASEG(type))
+		up_write(&sbi->node_write);
 
 	if (put_pin_sem)
 		up_read(&sbi->pin_sem);

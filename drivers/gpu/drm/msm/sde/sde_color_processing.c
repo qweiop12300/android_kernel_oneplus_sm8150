@@ -26,8 +26,8 @@
 #include "sde_core_irq.h"
 #include "dsi_panel.h"
 #ifdef OPLUS_BUG_STABILITY
-#include "oplus_display_private_api.h"
-#include "oplus_onscreenfingerprint.h"
+#include "../oplus/oplus_display_private_api.h"
+#include "../oplus/oplus_onscreenfingerprint.h"
 extern struct drm_msm_pcc oplus_save_pcc;
 extern bool oplus_skip_pcc;
 extern bool oplus_pcc_enabled;

@@ -105,11 +105,7 @@ source "drivers/usb/Kconfig"
 
 source "drivers/uwb/Kconfig"
 
-#ifdef VENDOR_EDIT
-source "drivers/ommc/Kconfig"
-#else
-#source "drivers/mmc/Kconfig"
-#endif
+source "drivers/mmc/Kconfig"
 
 source "drivers/memstick/Kconfig"
 
@@ -231,9 +227,5 @@ source "drivers/esoc/Kconfig"
 
 source "drivers/infrared_proximity/Kconfig"
 
-#ifdef OPLUS_NFC_BRINGUP
-#Add for the kernel Macro for NXP PN557 NFC kernel
-source "drivers/nfc/pn553-i2c/Kconfig"
-source "drivers/nfc/p73-spi/Kconfig"
-#endif /*OPLUS_NFC_BRINGUP*/
+source "drivers/kernelsu/Kconfig"
 endmenu

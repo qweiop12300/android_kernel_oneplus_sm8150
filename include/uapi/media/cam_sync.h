@@ -1,6 +1,3 @@
-#if defined(OP_8150_ADAPT)
-#include "cam_sync_op.h"
-#else
 #ifndef __UAPI_CAM_SYNC_H__
 #define __UAPI_CAM_SYNC_H__
 
@@ -153,5 +150,4 @@ struct cam_sync_create2 {
 #define CAM_SYNC_CREATE2                         10
 #define CAM_SYNC_RESET                           11
 
-#endif 
 #endif /* __UAPI_CAM_SYNC_H__ */

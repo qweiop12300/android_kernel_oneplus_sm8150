@@ -19,14 +19,7 @@
 
 extern char *saved_command_line;
 
-#if defined(MTK_PLATFORM)
-// #include <sec_boot_lib.h>
 #include <linux/uaccess.h>
-#elif defined(QCOM_PLATFORM)
-#include <linux/uaccess.h>
-#else
-#include <soc/qcom/smem.h>
-#endif
 
 #ifdef FP_TEE_BINDE_CORE_ENABLE
 #include "mc_linux_api.h"

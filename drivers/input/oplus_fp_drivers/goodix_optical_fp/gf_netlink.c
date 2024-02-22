@@ -16,7 +16,6 @@
 
 static int pid = -1;
 struct sock *nl_sk = NULL;
-#ifdef QCOM_PLATFORM
 extern struct fp_underscreen_info fp_tpinfo;
 extern uint32_t notify_tpinfo_flag;
 extern struct gf_dev gf;
@@ -64,41 +63,6 @@ void sendnlmsg(char *msg)
         pr_err("send msg from kernel to usespace failed ret 0x%x\n", ret);
     }
 }
-#else
-void sendnlmsg(char *msg)
-{
-	struct sk_buff *skb_1;
-	struct nlmsghdr *nlh;
-	int len = NLMSG_SPACE(MAX_MSGSIZE);
-	int ret = 0;
-    if (!msg || !nl_sk || !pid) {
-        return;
-    }
-    if (get_fp_driver_event_type() != FP_DIRVER_NETLINK) {
-        return;
-    }
-	skb_1 = alloc_skb(len, GFP_KERNEL);
-	if (!skb_1) {
-		pr_err("alloc_skb error\n");
-		return;
-	}
-
-	nlh = nlmsg_put(skb_1, 0, 0, 0, MAX_MSGSIZE, 0);
-
-	NETLINK_CB(skb_1).portid = 0;
-	NETLINK_CB(skb_1).dst_group = 0;
-
-	if (nlh != NULL) {
-		memcpy(NLMSG_DATA(nlh), msg, sizeof(char));
-		pr_debug("send message: %d\n", *(char *)NLMSG_DATA(nlh));
-	}
-
-	ret = netlink_unicast(nl_sk, skb_1, pid, MSG_DONTWAIT);
-	if (!ret) {
-		pr_err("send msg from kernel to usespace failed ret 0x%x\n", ret);
-	}
-}
-#endif
 
 void nl_data_ready(struct sk_buff *__skb)
 {

@@ -794,7 +794,8 @@ static const struct adc_channels adc_chans_pmic5[ADC_MAX_CHANNEL] = {
 					SCALE_HW_CALIB_PM5_SMB_TEMP)
 	[ADC_GPIO1_PU2]	= ADC_CHAN_TEMP("gpio1_pu2", 1,
 					SCALE_HW_CALIB_THERM_100K_PULLUP)
-#ifdef CONFIG_OPLUS_SM8150R_CHARGER/*for usbtemp*/
+#ifdef CONFIG_OPLUS_SM8150R_CHARGER
+	/* for usbtemp */
 	[ADC_GPIO2_PU2]	= ADC_CHAN_VOLT("gpio2_pu2", 1,
 					SCALE_HW_CALIB_DEFAULT)
 #else
@@ -807,7 +808,7 @@ static const struct adc_channels adc_chans_pmic5[ADC_MAX_CHANNEL] = {
 					SCALE_HW_CALIB_THERM_100K_PULLUP)
 
 #ifdef CONFIG_OPLUS_SM7150R_CHARGER
-/* Yichun.Chen	PSW.BSP.CHG  2019-04-13  for read chargerid */
+	/* Yichun.Chen	PSW.BSP.CHG  2019-04-13  for read chargerid */
 	[ADC_GPIO4] = ADC_CHAN_VOLT("chgid_voltage", 1, SCALE_HW_CALIB_DEFAULT)
 	[ADC_AMUX_THM1] = ADC_CHAN_VOLT("usb_temp1", 1, SCALE_HW_CALIB_DEFAULT)
 	[ADC_AMUX_THM3] = ADC_CHAN_VOLT("usb_temp2", 1, SCALE_HW_CALIB_DEFAULT)
@@ -816,7 +817,7 @@ static const struct adc_channels adc_chans_pmic5[ADC_MAX_CHANNEL] = {
 #ifdef OPLUS_FEATURE_TP_BASIC
 	[ADC_GPIO4] 	= ADC_CHAN_VOLT("board_id_vdata", 1,
 						SCALE_HW_CALIB_DEFAULT)
-#endif/*OPLUS_FEATURE_TP_BASIC*/
+#endif /*OPLUS_FEATURE_TP_BASIC*/
 
 #ifdef CONFIG_OPLUS_SM8150R_CHARGER
 	[ADC_GPIO3] = ADC_CHAN_VOLT("gpio7_v", 1,

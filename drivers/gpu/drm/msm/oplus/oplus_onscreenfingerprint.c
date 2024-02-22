@@ -86,7 +86,7 @@ static struct oplus_brightness_alpha brightness_alpha_lut_dc[] = {
 void oplus_set_aod_dim_alpha(int cust)
 {
 	oplus_aod_dim_alpha = cust;
-	DSI_DEBUG("set oplus_aod_dim_alpha = %d\n", oplus_aod_dim_alpha);
+	pr_debug("set oplus_aod_dim_alpha = %d\n", oplus_aod_dim_alpha);
 }
 
 int oplus_get_panel_brightness(void)
@@ -243,16 +243,16 @@ int dsi_panel_parse_oplus_fod_config(struct dsi_panel *panel)
 	arr = utils->get_property(utils->data, "oplus,dsi-fod-brightness", &length);
 
 	if (!arr) {
-		DSI_ERR("[%s] oplus,dsi-fod-brightness  not found\n", panel->name);
+		pr_err("[%s] oplus,dsi-fod-brightness not found\n", panel->name);
 		return -EINVAL;
 	}
 
 	if (length & 0x1) {
-		DSI_ERR("[%s] oplus,dsi-fod-brightness length error\n", panel->name);
+		pr_err("[%s] oplus,dsi-fod-brightness length error\n", panel->name);
 		return -EINVAL;
 	}
 
-	DSI_DEBUG("RESET SEQ LENGTH = %d\n", length);
+	pr_debug("RESET SEQ LENGTH = %d\n", length);
 	length = length / sizeof(u32);
 	size = length * sizeof(u32);
 
@@ -267,7 +267,7 @@ int dsi_panel_parse_oplus_fod_config(struct dsi_panel *panel)
 			arr_32, length);
 
 	if (rc) {
-		DSI_ERR("[%s] cannot read dsi-fod-brightness\n", panel->name);
+		pr_err("[%s] cannot read dsi-fod-brightness\n", panel->name);
 		goto error_free_arr_32;
 	}
 
@@ -312,16 +312,16 @@ static int dsi_panel_parse_oplus_backlight_remapping_config(struct dsi_panel *pa
 
 	arr = utils->get_property(utils->data, "oplus,dsi-brightness-remapping", &length);
 	if (!arr) {
-		DSI_DEBUG("[%s] oplus,dsi-brightness-remapping not found\n", panel->name);
+		pr_debug("[%s] oplus,dsi-brightness-remapping not found\n", panel->name);
 		return -EINVAL;
 	}
 
 	if (length & 0x1) {
-		DSI_ERR("[%s] oplus,dsi-brightness-remapping length error\n", panel->name);
+		pr_err("[%s] oplus,dsi-brightness-remapping length error\n", panel->name);
 		return -EINVAL;
 	}
 
-	DSI_INFO("oplus,dsi-brightness-remapping's length = %d, interpolate_nosub = %d\n", length, panel->oplus_priv.bl_interpolate_nosub ? 1 : 0);
+	pr_info("oplus,dsi-brightness-remapping's length = %d, interpolate_nosub = %d\n", length, panel->oplus_priv.bl_interpolate_nosub ? 1 : 0);
 	length = length / sizeof(u32);
 	size = length * sizeof(u32);
 
@@ -334,7 +334,7 @@ static int dsi_panel_parse_oplus_backlight_remapping_config(struct dsi_panel *pa
 	rc = utils->read_u32_array(utils->data, "oplus,dsi-brightness-remapping",
 			arr_32, length);
 	if (rc) {
-		DSI_ERR("[%s] cannot read oplus,dsi-brightness-remapping\n", panel->name);
+		pr_err("[%s] cannot read oplus,dsi-brightness-remapping\n", panel->name);
 		goto error_free_arr_32;
 	}
 
@@ -386,33 +386,8 @@ int dsi_panel_parse_oplus_config(struct dsi_panel *panel)
 
 	panel->oplus_priv.is_pxlw_iris5 = utils->read_bool(utils->data,
 			"oplus,is_pxlw_iris5");
-	DSI_INFO("is_pxlw_iris5: %s",
+	pr_info("is_pxlw_iris5: %s",
 		panel->oplus_priv.is_pxlw_iris5 ? "true" : "false");
-
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
-	panel->oplus_priv.is_aod_ramless = utils->read_bool(utils->data,
-			"oplus,aod_ramless");
-	DSI_INFO("aod ramless mode: %s", panel->oplus_priv.is_aod_ramless ? "true" : "false");
-#endif /* OPLUS_FEATURE_AOD_RAMLESS */
-
-#ifdef OPLUS_BUG_STABILITY
-	panel->oplus_priv.is_19781_lcd = utils->read_bool(utils->data,
-			"oplus,is_19781_lcd");
-	DSI_INFO("is_19781_lcd: %s",
-		panel->oplus_priv.is_19781_lcd ? "true" : "false");
-
-	 {
-		u32 val = 0;
-		int rc;
-		rc = utils->read_u32(utils->data, "oplus,dsi-pll-delay", &val);
-		panel->oplus_priv.pll_delay = !rc ? val : 0;
-		DSI_INFO("oplus_dsi_pll_delay = %d\n", panel->oplus_priv.pll_delay);
-
-		rc = utils->read_u32(utils->data, "oplus,prj-flag", &val);
-		panel->oplus_priv.prj_flag = !rc ? val : 0;
-		DSI_INFO("oplus_prj_flag = %d\n", panel->oplus_priv.prj_flag);
-	}
-#endif /* OPLUS_BUG_STABILITY */
 
 	return 0;
 }
@@ -429,100 +404,91 @@ int dsi_panel_parse_oplus_mode_config(struct dsi_display_mode *mode,
 	rc = utils->read_u32(utils->data, "oplus,fod-th-brightness", &val);
 
 	if (rc) {
-		DSI_ERR("oplus,fod-th-brightness is not defined, rc=%d\n", rc);
+		pr_err("oplus,fod-th-brightness is not defined, rc=%d\n", rc);
 		priv_info->fod_th_brightness = 0;
 
 	} else {
 		priv_info->fod_th_brightness = val;
-		DSI_INFO("oplus,fod-th-brightness is %d", val);
 	}
 
 	rc = utils->read_u32(utils->data, "oplus,fod-on-vblank", &val);
 
 	if (rc) {
-		DSI_ERR("oplus,fod-on-vblank is not defined, rc=%d\n", rc);
+		pr_err("oplus,fod-on-vblank is not defined, rc=%d\n", rc);
 		priv_info->fod_on_vblank = 0;
 
 	} else {
 		priv_info->fod_on_vblank = val;
-		DSI_INFO("oplus,fod-on-vblank is %d", val);
 	}
 
 	rc = utils->read_u32(utils->data, "oplus,fod-off-vblank", &val);
 
 	if (rc) {
-		DSI_ERR("oplus,fod-off-vblank is not defined, rc=%d\n", rc);
+		pr_err("oplus,fod-off-vblank is not defined, rc=%d\n", rc);
 		priv_info->fod_off_vblank = 0;
 
 	} else {
 		priv_info->fod_off_vblank = val;
-		DSI_INFO("oplus,fod-off-vblank is %d", val);
 	}
 
 	rc = utils->read_u32(utils->data, "oplus,fod-on-delay", &val);
 
 	if (rc) {
-		DSI_ERR("oplus,fod-on-delay is not defined, rc=%d\n", rc);
+		pr_err("oplus,fod-on-delay is not defined, rc=%d\n", rc);
 		priv_info->fod_on_delay = 0;
 
 	} else {
 		priv_info->fod_on_delay = val;
-		DSI_INFO("oplus,fod-on-delay is %d", val);
 	}
 
 	rc = utils->read_u32(utils->data, "oplus,fod-off-delay", &val);
 
 	if (rc) {
-		DSI_ERR("oplus,fod-off-delay is not defined, rc=%d\n", rc);
+		pr_err("oplus,fod-off-delay is not defined, rc=%d\n", rc);
 		priv_info->fod_off_delay = 0;
 
 	} else {
 		priv_info->fod_off_delay = val;
-		DSI_INFO("oplus,fod-off-delay is %d", val);
 	}
 
 	rc = utils->read_u32(utils->data, "oplus,fod-on-vblank_above_th", &val);
 
 	if (rc) {
-		DSI_ERR("oplus,fod-on-vblank_above_th is not defined, rc=%d\n", rc);
+		pr_err("oplus,fod-on-vblank_above_th is not defined, rc=%d\n", rc);
 		priv_info->fod_on_vblank_above_th = 0;
 
 	} else {
 		priv_info->fod_on_vblank_above_th = val;
-		DSI_INFO("oplus,fod-on-vblank_above_th is %d", val);
 	}
 
 	rc = utils->read_u32(utils->data, "oplus,fod-off-vblank_above_th", &val);
 
 	if (rc) {
-		DSI_ERR("oplus,fod-off-vblank_above_th is not defined, rc=%d\n", rc);
+		pr_err("oplus,fod-off-vblank_above_th is not defined, rc=%d\n", rc);
 		priv_info->fod_off_vblank_above_th = 0;
 
 	} else {
 		priv_info->fod_off_vblank_above_th = val;
-		DSI_INFO("oplus,fod-off-vblank_above_th is %d", val);
 	}
 
 	rc = utils->read_u32(utils->data, "oplus,fod-on-delay_above_th", &val);
 
 	if (rc) {
-		DSI_ERR("oplus,fod-on-delay_above_th is not defined, rc=%d\n", rc);
+		pr_err("oplus,fod-on-delay_above_th is not defined, rc=%d\n", rc);
 		priv_info->fod_on_delay_above_th = 0;
 
 	} else {
 		priv_info->fod_on_delay_above_th = val;
-		DSI_INFO("oplus,fod-on-delay_above_th is %d", val);
 	}
 
 	rc = utils->read_u32(utils->data, "oplus,fod-off-delay_above_th", &val);
 
 	if (rc) {
-		DSI_ERR("oplus,fod-off-delay_above_th is not defined, rc=%d\n", rc);
+		pr_err("oplus,fod-off-delay_above_th is not defined, rc=%d\n", rc);
 		priv_info->fod_off_delay_above_th = 0;
 
 	} else {
 		priv_info->fod_off_delay_above_th = val;
-		DSI_INFO("oplus,fod-off-delay_above_th is %d", val);
 	}
 
 	return 0;
@@ -625,7 +591,7 @@ int sde_crtc_config_fingerprint_dim_layer(struct drm_crtc_state *crtc_state,
 	fingerprint_dim_layer->flags = SDE_DRM_DIM_LAYER_INCLUSIVE;
 	fingerprint_dim_layer->stage = stage + SDE_STAGE_0;
 
-	DSI_DEBUG("fingerprint_dim_layer: stage = %d, alpha = %d\n", stage, alpha);
+	pr_debug("fingerprint_dim_layer: stage = %d, alpha = %d\n", stage, alpha);
 
 	fingerprint_dim_layer->rect.x = 0;
 	fingerprint_dim_layer->rect.y = 0;
@@ -681,15 +647,7 @@ bool sde_cp_crtc_update_pcc(struct drm_crtc *crtc)
 	hw_cfg.num_of_mixers = sde_crtc->num_mixers;
 	hw_cfg.last_feature = 0;
 
-	for (i = 0; i < num_mixers; i++) {
-		hw_dspp = sde_crtc->mixers[i].hw_dspp;
-		if (!hw_dspp || i >= DSPP_MAX)
-			continue;
-		hw_cfg.dspp[i] = hw_dspp;
-	}
-
 	catalog = get_kms_(&sde_crtc->base)->catalog;
-	hw_cfg.broadcast_disabled = catalog->dma_cfg.broadcast_disabled;
 	for (i = 0; i < num_mixers; i++) {
 		hw_lm = sde_crtc->mixers[i].hw_lm;
 		hw_dspp = sde_crtc->mixers[i].hw_dspp;

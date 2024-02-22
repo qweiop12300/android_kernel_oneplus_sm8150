@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2021, The Linux Foundation. All rights reserved.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
  *
@@ -51,8 +51,8 @@
 #include "soc/qcom/secure_buffer.h"
 
 #ifdef OPLUS_BUG_STABILITY
-#include "oplus_display_private_api.h"
-#include "oplus_onscreenfingerprint.h"
+#include "../oplus/oplus_display_private_api.h"
+#include "../oplus/oplus_onscreenfingerprint.h"
 #endif /* OPLUS_BUG_STABILITY */
 
 #define CREATE_TRACE_POINTS
@@ -372,9 +372,32 @@ static void _sde_debugfs_destroy(struct sde_kms *sde_kms)
 static int sde_kms_enable_vblank(struct msm_kms *kms, struct drm_crtc *crtc)
 {
 	int ret = 0;
+	struct sde_kms *sde_kms;
+	struct msm_drm_private *priv;
+	struct sde_crtc *sde_crtc;
+	struct drm_encoder *drm_enc;
+
+	sde_kms = to_sde_kms(kms);
+	priv = sde_kms->dev->dev_private;
+	sde_crtc = to_sde_crtc(crtc);
 
 	SDE_ATRACE_BEGIN("sde_kms_enable_vblank");
+
+	if (sde_crtc->vblank_requested == false) {
+		SDE_ATRACE_BEGIN("sde_encoder_trigger_early_wakeup");
+		drm_for_each_encoder(drm_enc, crtc->dev)
+			sde_encoder_trigger_early_wakeup(drm_enc);
+
+		if (sde_kms->first_kickoff) {
+			sde_power_scale_reg_bus(&priv->phandle,
+					sde_kms->core_client,
+					VOTE_INDEX_HIGH, false);
+		}
+		SDE_ATRACE_END("sde_encoder_trigger_early_wakeup");
+	}
+
 	ret = sde_crtc_vblank(crtc, true);
+
 	SDE_ATRACE_END("sde_kms_enable_vblank");
 
 	return ret;
@@ -2003,6 +2026,48 @@ static void sde_kms_destroy(struct msm_kms *kms)
 	kfree(sde_kms);
 }
 
+static int sde_kms_set_crtc_for_conn(struct drm_device *dev,
+		struct drm_encoder *enc, struct drm_atomic_state *state)
+{
+	struct drm_connector *conn = NULL;
+	struct drm_connector *tmp_conn = NULL;
+	struct drm_connector_list_iter conn_iter;
+	struct drm_crtc_state *crtc_state = NULL;
+	struct drm_connector_state *conn_state = NULL;
+	int ret = 0;
+
+	drm_connector_list_iter_begin(dev, &conn_iter);
+	drm_for_each_connector_iter(tmp_conn, &conn_iter) {
+		if (enc == tmp_conn->state->best_encoder) {
+			conn = tmp_conn;
+			break;
+		}
+	}
+	drm_connector_list_iter_end(&conn_iter);
+
+	if (!conn) {
+		SDE_ERROR("error in finding conn for enc:%d\n", DRMID(enc));
+		return -EINVAL;
+	}
+
+	crtc_state = drm_atomic_get_crtc_state(state, enc->crtc);
+	conn_state = drm_atomic_get_connector_state(state, conn);
+	if (IS_ERR(conn_state)) {
+		SDE_ERROR("error %d getting connector %d state\n",
+				ret, DRMID(conn));
+		return -EINVAL;
+	}
+
+	crtc_state->active = true;
+	ret = drm_atomic_set_crtc_for_connector(conn_state, enc->crtc);
+	if (ret)
+		SDE_ERROR("error %d setting the crtc\n", ret);
+
+	_sde_crtc_clear_dim_layers_v1(crtc_state);
+
+	return 0;
+}
+
 static void _sde_kms_plane_force_remove(struct drm_plane *plane,
 			struct drm_atomic_state *state)
 {
@@ -2037,8 +2102,9 @@ static int _sde_kms_remove_fbs(struct sde_kms *sde_kms, struct drm_file *file,
 	struct drm_framebuffer *fb, *tfb;
 	struct list_head fbs;
 	struct drm_plane *plane;
+	struct drm_crtc *crtc = NULL;
+	unsigned int crtc_mask = 0;
 	int ret = 0;
-	u32 plane_mask = 0;
 
 	INIT_LIST_HEAD(&fbs);
 
@@ -2047,9 +2113,11 @@ static int _sde_kms_remove_fbs(struct sde_kms *sde_kms, struct drm_file *file,
 			list_move_tail(&fb->filp_head, &fbs);
 
 			drm_for_each_plane(plane, dev) {
-				if (plane->fb == fb) {
-					plane_mask |=
-						1 << drm_plane_index(plane);
+				if (plane->state &&
+					plane->state->fb == fb) {
+					if (plane->state->crtc)
+						crtc_mask |= drm_crtc_mask(
+							plane->state->crtc);
 					 _sde_kms_plane_force_remove(
 								plane, state);
 				}
@@ -2062,11 +2130,22 @@ static int _sde_kms_remove_fbs(struct sde_kms *sde_kms, struct drm_file *file,
 
 	if (list_empty(&fbs)) {
 		SDE_DEBUG("skip commit as no fb(s)\n");
-		drm_atomic_state_put(state);
 		return 0;
 	}
 
-	SDE_DEBUG("committing after removing all the pipes\n");
+	drm_for_each_crtc(crtc, dev) {
+		if ((crtc_mask & drm_crtc_mask(crtc)) && crtc->state->active) {
+			struct drm_encoder *drm_enc;
+
+			drm_for_each_encoder_mask(drm_enc, crtc->dev,
+					crtc->state->encoder_mask)
+				ret = sde_kms_set_crtc_for_conn(
+					dev, drm_enc, state);
+		}
+	}
+
+	SDE_EVT32(state, crtc_mask);
+	SDE_DEBUG("null commit after removing all the pipes\n");
 	ret = drm_atomic_commit(state);
 
 	if (ret) {
@@ -2089,8 +2168,6 @@ static int _sde_kms_remove_fbs(struct sde_kms *sde_kms, struct drm_file *file,
 	}
 
 end:
-	drm_atomic_clean_old_fb(dev, plane_mask, ret);
-
 	return ret;
 }
 
@@ -2343,9 +2420,7 @@ static int sde_kms_atomic_check(struct msm_kms *kms,
 {
 	struct sde_kms *sde_kms;
 	struct drm_device *dev;
-	struct drm_crtc *crtc;
-	struct drm_crtc_state *old_crtc_state, *new_crtc_state;
-	int ret, i;
+	int ret;
 
 	if (!kms || !state)
 		return -EINVAL;
@@ -2358,14 +2433,6 @@ static int sde_kms_atomic_check(struct msm_kms *kms,
 		SDE_DEBUG("suspended, skip atomic_check\n");
 		ret = -EBUSY;
 		goto end;
-	}
-
-	for_each_oldnew_crtc_in_state(state, crtc, old_crtc_state, new_crtc_state, i) {
-		if (new_crtc_state->fd && !new_crtc_state->active && new_crtc_state->enable) {
-			SDE_EVT32(new_crtc_state->fd, new_crtc_state->active, new_crtc_state->enable);
-			WARN_ON(new_crtc_state->fd);
-			new_crtc_state->active = true;
-		}
 	}
 
 	ret = drm_atomic_helper_check(dev, state);
@@ -2723,12 +2790,7 @@ static void _sde_kms_null_commit(struct drm_device *dev,
 		struct drm_encoder *enc)
 {
 	struct drm_modeset_acquire_ctx ctx;
-	struct drm_connector *conn = NULL;
-	struct drm_connector *tmp_conn = NULL;
-	struct drm_connector_list_iter conn_iter;
 	struct drm_atomic_state *state = NULL;
-	struct drm_crtc_state *crtc_state = NULL;
-	struct drm_connector_state *conn_state = NULL;
 	int retry_cnt = 0;
 	int ret = 0;
 
@@ -2752,30 +2814,11 @@ retry:
 	}
 
 	state->acquire_ctx = &ctx;
-	drm_connector_list_iter_begin(dev, &conn_iter);
-	drm_for_each_connector_iter(tmp_conn, &conn_iter) {
-		if (enc == tmp_conn->state->best_encoder) {
-			conn = tmp_conn;
-			break;
-		}
-	}
-	drm_connector_list_iter_end(&conn_iter);
 
-	if (!conn) {
-		SDE_ERROR("error in finding conn for enc:%d\n", DRMID(enc));
+	ret = sde_kms_set_crtc_for_conn(dev, enc, state);
+
+	if (ret)
 		goto end;
-	}
-
-	crtc_state = drm_atomic_get_crtc_state(state, enc->crtc);
-	conn_state = drm_atomic_get_connector_state(state, conn);
-	if (IS_ERR(conn_state)) {
-		SDE_ERROR("error %d getting connector %d state\n",
-				ret, DRMID(conn));
-		goto end;
-	}
-
-	crtc_state->active = true;
-	drm_atomic_set_crtc_for_connector(conn_state, enc->crtc);
 
 	drm_atomic_commit(state);
 end:
@@ -2875,7 +2918,6 @@ retry:
 				DRM_ERROR("failed to get crtc %d state\n",
 						conn->state->crtc->base.id);
 				drm_connector_list_iter_end(&conn_iter);
-                                ret = -EINVAL;
 				goto unlock;
 			}
 
@@ -2884,7 +2926,6 @@ retry:
 			++num_crtcs;
 		}
 	}
-	SDE_EVT32(num_crtcs);
 	drm_connector_list_iter_end(&conn_iter);
 
 	/* check for nothing to do */
@@ -2934,12 +2975,6 @@ unlock:
 		drm_modeset_backoff(&ctx);
 		goto retry;
 	}
-
-	if ((ret || !num_crtcs) && sde_kms->suspend_state) {
-		drm_atomic_state_put(sde_kms->suspend_state);
-		sde_kms->suspend_state = NULL;
-	}
-
 	drm_modeset_drop_locks(&ctx);
 	drm_modeset_acquire_fini(&ctx);
 
@@ -2964,8 +2999,7 @@ static int sde_kms_pm_resume(struct device *dev)
 
 	SDE_EVT32(sde_kms->suspend_state != NULL);
 
-	if (sde_kms->suspend_state)
-		drm_mode_config_reset(ddev);
+	drm_mode_config_reset(ddev);
 
 	drm_modeset_acquire_init(&ctx, 0);
 retry:
@@ -3732,4 +3766,30 @@ int sde_kms_handle_recovery(struct drm_encoder *encoder)
 {
 	SDE_EVT32(DRMID(encoder), MSM_ENC_ACTIVE_REGION);
 	return sde_encoder_wait_for_event(encoder, MSM_ENC_ACTIVE_REGION);
+}
+
+void sde_kms_trigger_early_wakeup(struct sde_kms *sde_kms,
+		struct drm_crtc *crtc)
+{
+	struct msm_drm_private *priv;
+	struct drm_encoder *drm_enc;
+
+	if (!sde_kms || !crtc) {
+		SDE_ERROR("invalid argument sde_kms %pK crtc %pK\n",
+			sde_kms, crtc);
+		return;
+	}
+
+	priv = sde_kms->dev->dev_private;
+
+	SDE_ATRACE_BEGIN("sde_kms_trigger_early_wakeup");
+	drm_for_each_encoder_mask(drm_enc, crtc->dev, crtc->state->encoder_mask)
+		sde_encoder_trigger_early_wakeup(drm_enc);
+
+	if (sde_kms->first_kickoff) {
+		sde_power_scale_reg_bus(&priv->phandle,
+				sde_kms->core_client,
+				VOTE_INDEX_HIGH, false);
+	}
+	SDE_ATRACE_END("sde_kms_trigger_early_wakeup");
 }

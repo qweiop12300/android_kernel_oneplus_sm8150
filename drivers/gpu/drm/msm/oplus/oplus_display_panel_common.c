@@ -13,11 +13,6 @@
 #include "oplus_display_panel_common.h"
 
 int oplus_debug_max_brightness = 0;
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
-extern atomic_t aod_onscreenfp_status;
-extern int oplus_display_mode;
-extern struct wait_queue_head oplus_aod_wait;
-#endif
 extern ktime_t oplus_onscreenfp_pressed_time;
 extern int oplus_onscreenfp_status;
 extern u32 oplus_onscreenfp_vblank_count;
@@ -25,19 +20,6 @@ extern int lcd_closebl_flag;
 extern int oplus_dimlayer_hbm;
 extern int oplus_dimlayer_hbm_vblank_count;
 extern atomic_t oplus_dimlayer_hbm_vblank_ref;
-
-struct aod_area {
-	bool enable;
-	int x;
-	int y;
-	int w;
-	int h;
-	int color;
-	int bitdepth;
-	int mono;
-	int gray;
-};
-struct aod_area oplus_aod_area[RAMLESS_AOD_AREA_NUM];
 
 extern int dsi_display_read_panel_reg(struct dsi_display *display, u8 cmd,
 	void *data, size_t len);
@@ -427,142 +409,6 @@ int oplus_display_get_panel_parameters(struct dsi_panel *panel,
 	return ret;
 }
 
-int oplus_display_update_aod_area_unlock(void)
-{
-	struct dsi_display *display = get_main_display();
-	struct mipi_dsi_device *mipi_device;
-	char payload[RAMLESS_AOD_PAYLOAD_SIZE];
-	int rc = 0;
-	int i;
-
-	if (!display || !display->panel || !display->panel->oplus_priv.is_aod_ramless)
-		return 0;
-
-	if (!dsi_panel_initialized(display->panel))
-		return -EINVAL;
-
-	mipi_device = &display->panel->mipi_device;
-
-	/* enable the clk vote for CMD mode panels */
-	if (display->config.panel_mode == DSI_OP_CMD_MODE) {
-		dsi_display_clk_ctrl(display->dsi_clk_handle,
-				DSI_CORE_CLK, DSI_CLK_ON);
-	}
-
-	memset(payload, 0, RAMLESS_AOD_PAYLOAD_SIZE);
-
-	for (i = 0; i < RAMLESS_AOD_AREA_NUM; i++) {
-		struct aod_area *area = &oplus_aod_area[i];
-
-		payload[0] |= (!!area->enable) << (RAMLESS_AOD_AREA_NUM - i - 1);
-		if (area->enable) {
-			int h_start = area->x;
-			int h_block = area->w / 100;
-			int v_start = area->y;
-			int v_end = area->y + area->h;
-			int off = i * 5;
-
-			/* Rect Setting */
-			payload[1 + off] = h_start >> 4;
-			payload[2 + off] = ((h_start & 0xf) << 4) | (h_block & 0xf);
-			payload[3 + off] = v_start >> 4;
-			payload[4 + off] = ((v_start & 0xf) << 4) | ((v_end >> 8) & 0xf);
-			payload[5 + off] = v_end & 0xff;
-
-			/* Mono Setting */
-#define SET_MONO_SEL(index, shift) \
-			if (i == index) \
-			payload[31] |= area->mono << shift;
-
-			SET_MONO_SEL(0, 6);
-			SET_MONO_SEL(1, 5);
-			SET_MONO_SEL(2, 4);
-			SET_MONO_SEL(3, 2);
-			SET_MONO_SEL(4, 1);
-			SET_MONO_SEL(5, 0);
-#undef SET_MONO_SEL
-
-			/* Depth Setting */
-			if (i < 4)
-				payload[32] |= (area->bitdepth & 0x3) << ((3 - i) * 2);
-			else if (i == 4)
-				payload[33] |= (area->bitdepth & 0x3) << 6;
-			else if (i == 5)
-				payload[33] |= (area->bitdepth & 0x3) << 4;
-			/* Color Setting */
-#define SET_COLOR_SEL(index, reg, shift) \
-			if (i == index) \
-			payload[reg] |= (area->color & 0x7) << shift;
-			SET_COLOR_SEL(0, 34, 4);
-			SET_COLOR_SEL(1, 34, 0);
-			SET_COLOR_SEL(2, 35, 4);
-			SET_COLOR_SEL(3, 35, 0);
-			SET_COLOR_SEL(4, 36, 4);
-			SET_COLOR_SEL(5, 36, 0);
-#undef SET_COLOR_SEL
-			/* Area Gray Setting */
-			payload[37 + i] = area->gray & 0xff;
-		}
-	}
-	payload[43] = 0x00;
-
-	rc = mipi_dsi_dcs_write(mipi_device, 0x81, payload, 43);
-	pr_err("dsi_cmd aod_area[%x] updated \n", payload[0]);
-
-
-	if (display->config.panel_mode == DSI_OP_CMD_MODE) {
-		rc = dsi_display_clk_ctrl(display->dsi_clk_handle,
-				DSI_CORE_CLK, DSI_CLK_OFF);
-	}
-
-	return 0;
-}
-
-int oplus_display_set_aod_area(void *buf)
-{
-	struct panel_aod_area_para *para = (struct panel_aod_area_para *)buf;
-	int i, cnt = 0;
-	struct dsi_display *display = get_main_display();
-	if (!display || !display->panel || !display->panel->oplus_priv.is_aod_ramless)
-		return -EINVAL;
-
-	memset(oplus_aod_area, 0, sizeof(struct aod_area) * RAMLESS_AOD_AREA_NUM);
-
-	if (para->size > RAMLESS_AOD_AREA_NUM) {
-		pr_err("aod area size is invalid, size=%d\n", para->size);
-		return -1;
-	}
-
-	pr_info("%s %d\n", __func__, __LINE__);
-	for (i = 0; i < para->size; i++) {
-		struct aod_area *area = &oplus_aod_area[cnt];
-
-		area->x = para->aod_area[i].x;
-		area->y = para->aod_area[i].y;
-		area->w = para->aod_area[i].w;
-		area->h = para->aod_area[i].h;
-		area->color = para->aod_area[i].color;
-		area->bitdepth = para->aod_area[i].bitdepth;
-		area->mono = para->aod_area[i].mono;
-		area->gray = para->aod_area[i].gray;
-		pr_info("%s %d rect[%dx%d-%dx%d]-%d-%d-%d-%x\n", __func__, __LINE__,
-			area->x, area->y, area->w, area->h,
-			area->color, area->bitdepth, area->mono, area->gray);
-		area->enable = true;
-		cnt++;
-	}
-
-	mutex_lock(&display->display_lock);
-	mutex_lock(&display->panel->panel_lock);
-
-	oplus_display_update_aod_area_unlock();
-
-	mutex_unlock(&display->panel->panel_lock);
-	mutex_unlock(&display->display_lock);
-
-	return 0;
-}
-
 int oplus_display_panel_get_brightness(void *buf)
 {
 	uint32_t *brightness = buf;
@@ -626,14 +472,6 @@ int oplus_display_panel_notify_fp_press(void *data)
 	bool if_con = false;
 	uint32_t *p_onscreenfp_status = data;
 
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
-	struct drm_display_mode *cmd_mode = NULL;
-	struct drm_display_mode *vid_mode = NULL;
-	struct drm_display_mode *mode = NULL;
-	struct drm_display_mode *cur_mode = NULL;
-	bool mode_changed = false;
-#endif /* OPLUS_FEATURE_AOD_RAMLESS */
-
 	if (!dsi_connector || !dsi_connector->state || !dsi_connector->state->crtc) {
 		pr_err("[%s]: display not ready\n", __func__);
 		return -EINVAL;
@@ -648,17 +486,15 @@ int oplus_display_panel_notify_fp_press(void *data)
 	}
 
 	pr_err("notify fingerpress %s\n", onscreenfp_status ? "on" : "off");
-	if (!display->panel->oplus_priv.prj_flag) {
-		if (OPLUS_DISPLAY_AOD_SCENE == get_oplus_display_scene()) {
-			if (onscreenfp_status) {
-				on_time = ktime_get();
-			} else {
-				ktime_t now = ktime_get();
-				ktime_t delta = ktime_sub(now, on_time);
+	if (OPLUS_DISPLAY_AOD_SCENE == get_oplus_display_scene()) {
+		if (onscreenfp_status) {
+			on_time = ktime_get();
+		} else {
+			ktime_t now = ktime_get();
+			ktime_t delta = ktime_sub(now, on_time);
 
-				if (ktime_to_ns(delta) < 300000000) {
-					msleep(300 - (ktime_to_ns(delta) / 1000000));
-				}
+			if (ktime_to_ns(delta) < 300000000) {
+				msleep(300 - (ktime_to_ns(delta) / 1000000));
 			}
 		}
 	}
@@ -669,16 +505,8 @@ int oplus_display_panel_notify_fp_press(void *data)
 	}
 
 	oplus_onscreenfp_status = onscreenfp_status;
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
-	if((0 == oplus_display_mode) && onscreenfp_status) {
-		atomic_set(&aod_onscreenfp_status, onscreenfp_status);
-	}
-#endif /* OPLUS_FEATURE_AOD_RAMLESS */
 
 	if_con = false;
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
-	if_con = if_con && !display->panel->oplus_priv.is_aod_ramless;
-#endif /* OPLUS_FEATURE_AOD_RAMLESS */
 	if (if_con) {
 		/* enable the clk vote for CMD mode panels */
 		if (display->config.panel_mode == DSI_OP_CMD_MODE) {
@@ -704,15 +532,9 @@ int oplus_display_panel_notify_fp_press(void *data)
 		}
 	}
 
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
-	if (!display->panel->oplus_priv.is_aod_ramless) {
-#endif /* OPLUS_FEATURE_AOD_RAMLESS */
-		oplus_onscreenfp_vblank_count = drm_crtc_vblank_count(
-			dsi_connector->state->crtc);
-		oplus_onscreenfp_pressed_time = ktime_get();
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
-	}
-#endif /* OPLUS_FEATURE_AOD_RAMLESS */
+	oplus_onscreenfp_vblank_count = drm_crtc_vblank_count(
+		dsi_connector->state->crtc);
+	oplus_onscreenfp_pressed_time = ktime_get();
 
 	drm_modeset_lock_all(drm_dev);
 
@@ -725,9 +547,6 @@ int oplus_display_panel_notify_fp_press(void *data)
 	state->acquire_ctx = mode_config->acquire_ctx;
 	crtc = dsi_connector->state->crtc;
 	crtc_state = drm_atomic_get_crtc_state(state, crtc);
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
-	cur_mode = &crtc->state->mode;
-#endif /* OPLUS_FEATURE_AOD_RAMLESS */
 
 	for (i = 0; i < priv->num_crtcs; i++) {
 		if (priv->disp_thread[i].crtc_id == crtc->base.id) {
@@ -737,63 +556,8 @@ int oplus_display_panel_notify_fp_press(void *data)
 		}
 	}
 
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
-	if (display->panel->oplus_priv.is_aod_ramless) {
-		struct drm_display_mode *set_mode = NULL;
-
-		if (oplus_display_mode == 2) {
-			pr_info("%s: return for oplus_display_mode == 2\n", __func__);
-			goto error;
-		}
-
-		list_for_each_entry(mode, &dsi_connector->modes, head) {
-			if (drm_mode_vrefresh(mode) == 0)
-				continue;
-			if (mode->clock != cur_mode->clock)
-				continue;
-			if (mode->flags & DRM_MODE_FLAG_VID_MODE_PANEL)
-				vid_mode = mode;
-			if (mode->flags & DRM_MODE_FLAG_CMD_MODE_PANEL)
-				cmd_mode = mode;
-		}
-		if (!display->panel->oplus_priv.prj_flag)
-			set_mode = oplus_display_mode ? vid_mode : cmd_mode;
-
-		set_mode = onscreenfp_status ? vid_mode : set_mode;
-		if (!crtc_state->active || !crtc_state->enable)
-			goto error;
-
-		if (set_mode && drm_mode_vrefresh(set_mode) != drm_mode_vrefresh(&crtc_state->mode)) {
-			mode_changed = true;
-		} else {
-			mode_changed = false;
-		}
-
-		if (mode_changed) {
-			display->panel->dyn_clk_caps.dyn_clk_support = false;
-			drm_atomic_set_mode_for_crtc(crtc_state, set_mode);
-		}
-
-		wake_up(&oplus_aod_wait);
-	}
-#endif /* OPLUS_FEATURE_AOD_RAMLESS */
-
 	err = drm_atomic_commit(state);
 	drm_atomic_state_put(state);
-
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
-	if (display->panel->oplus_priv.is_aod_ramless && mode_changed) {
-		for (i = 0; i < priv->num_crtcs; i++) {
-			if (priv->disp_thread[i].crtc_id == crtc->base.id) {
-				if (priv->disp_thread[i].thread) {
-					kthread_flush_worker(&priv->disp_thread[i].worker);
-				}
-			}
-		}
-		if (oplus_display_mode == 1)
-			display->panel->dyn_clk_caps.dyn_clk_support = true;
-	}
-#endif /* OPLUS_FEATURE_AOD_RAMLESS */
 
 error:
 	drm_modeset_unlock_all(drm_dev);

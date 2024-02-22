@@ -47,13 +47,9 @@
 #define TX_MACRO_SWR_MIC_MUX_SEL_MASK 0xF
 #define TX_MACRO_ADC_MUX_CFG_OFFSET 0x2
 
-#ifndef OPLUS_BUG_STABILITY
-#define TX_MACRO_DMIC_UNMUTE_DELAY_MS	40
-#else /* OPLUS_BUG_STABILITY */
-#define TX_MACRO_DMIC_UNMUTE_DELAY_MS	50
-#endif /* OPLUS_BUG_STABILITY */
+#define TX_MACRO_TX_UNMUTE_DELAY_MS	40
 
-static int tx_unmute_delay = TX_MACRO_DMIC_UNMUTE_DELAY_MS;
+static int tx_unmute_delay = TX_MACRO_TX_UNMUTE_DELAY_MS;
 module_param(tx_unmute_delay, int, 0664);
 MODULE_PARM_DESC(tx_unmute_delay, "delay to unmute the tx path");
 
@@ -438,9 +434,6 @@ static void tx_macro_tx_hpf_corner_freq_callback(struct work_struct *work)
 			goto tx_hpf_set;
 		/* analog mic clear TX hold */
 		bolero_clear_amic_tx_hold(codec->dev, adc_n);
-		#ifdef OPLUS_BUG_STABILITY
-		usleep_range(30, 35);
-		#endif /* OPLUS_BUG_STABILITY */
 	}
 tx_hpf_set:
 	snd_soc_update_bits(codec, dec_cfg_reg, TX_HPF_CUT_OFF_FREQ_MASK,
@@ -796,11 +789,7 @@ static int tx_macro_enable_dec(struct snd_soc_dapm_widget *w,
 				 * Minimum 1 clk cycle delay is required
 				 * as per HW spec
 				 */
-				#ifndef OPLUS_BUG_STABILITY
 				usleep_range(1000, 1010);
-				#else /* OPLUS_BUG_STABILITY */
-				usleep_range(30, 35);
-				#endif /* OPLUS_BUG_STABILITY */
 				snd_soc_update_bits(codec, hpf_gate_reg,
 						0x02, 0x00);
 			}
@@ -1486,30 +1475,30 @@ static const struct snd_soc_dapm_route tx_audio_map[] = {
 };
 
 static const struct snd_kcontrol_new tx_macro_snd_controls[] = {
-	SOC_SINGLE_SX_TLV("TX_DEC0 Volume",
+	SOC_SINGLE_S8_TLV("TX_DEC0 Volume",
 			  BOLERO_CDC_TX0_TX_VOL_CTL,
-			  0, -84, 40, digital_gain),
-	SOC_SINGLE_SX_TLV("TX_DEC1 Volume",
+			  -84, 40, digital_gain),
+	SOC_SINGLE_S8_TLV("TX_DEC1 Volume",
 			  BOLERO_CDC_TX1_TX_VOL_CTL,
-			  0, -84, 40, digital_gain),
-	SOC_SINGLE_SX_TLV("TX_DEC2 Volume",
+			  -84, 40, digital_gain),
+	SOC_SINGLE_S8_TLV("TX_DEC2 Volume",
 			  BOLERO_CDC_TX2_TX_VOL_CTL,
-			  0, -84, 40, digital_gain),
-	SOC_SINGLE_SX_TLV("TX_DEC3 Volume",
+			  -84, 40, digital_gain),
+	SOC_SINGLE_S8_TLV("TX_DEC3 Volume",
 			  BOLERO_CDC_TX3_TX_VOL_CTL,
-			  0, -84, 40, digital_gain),
-	SOC_SINGLE_SX_TLV("TX_DEC4 Volume",
+			  -84, 40, digital_gain),
+	SOC_SINGLE_S8_TLV("TX_DEC4 Volume",
 			  BOLERO_CDC_TX4_TX_VOL_CTL,
-			  0, -84, 40, digital_gain),
-	SOC_SINGLE_SX_TLV("TX_DEC5 Volume",
+			  -84, 40, digital_gain),
+	SOC_SINGLE_S8_TLV("TX_DEC5 Volume",
 			  BOLERO_CDC_TX5_TX_VOL_CTL,
-			  0, -84, 40, digital_gain),
-	SOC_SINGLE_SX_TLV("TX_DEC6 Volume",
+			  -84, 40, digital_gain),
+	SOC_SINGLE_S8_TLV("TX_DEC6 Volume",
 			  BOLERO_CDC_TX6_TX_VOL_CTL,
-			  0, -84, 40, digital_gain),
-	SOC_SINGLE_SX_TLV("TX_DEC7 Volume",
+			  -84, 40, digital_gain),
+	SOC_SINGLE_S8_TLV("TX_DEC7 Volume",
 			  BOLERO_CDC_TX7_TX_VOL_CTL,
-			  0, -84, 40, digital_gain),
+			  -84, 40, digital_gain),
 
 	SOC_ENUM("TX0 HPF cut off", cf_dec0_enum),
 

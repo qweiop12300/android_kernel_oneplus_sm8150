@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -93,6 +93,7 @@
 #define USB_HSPHY_1P8_HPM_LOAD			19000	/* uA */
 
 #define USB_HSPHY_VDD_HPM_LOAD			30000	/* uA */
+
 #ifndef OPLUS_CUSTOM_OP_DEF
 #ifdef CONFIG_OPLUS_SM8150R_CHARGER
 
@@ -411,22 +412,22 @@ static void hsusb_phy_read_seq(void __iomem *base, u32 *seq, int cnt,
 	pr_debug(" hsusb_phy_read_seq Seq count:%d\n", cnt);
 
 	tmp = readl_relaxed(base + QUSB2PHY_PORT_TUNE1);
-	pr_err("11 value: 0x%02x addr: 0x%02x\n", tmp, QUSB2PHY_PORT_TUNE1);
+	pr_debug("11 value: 0x%02x addr: 0x%02x\n", tmp, QUSB2PHY_PORT_TUNE1);
 	if (delay)
 		usleep_range(delay, (delay + 2000));
 
 	tmp = readl_relaxed(base + QUSB2PHY_PORT_TUNE2);
-	pr_err("22 value: 0x%02x addr: 0x%02x\n", tmp, QUSB2PHY_PORT_TUNE2);
+	pr_debug("22 value: 0x%02x addr: 0x%02x\n", tmp, QUSB2PHY_PORT_TUNE2);
 	if (delay)
 		usleep_range(delay, (delay + 2000));
 
 	tmp = readl_relaxed(base + QUSB2PHY_PORT_TUNE3);
-	pr_err("33 value: 0x%02x addr: 0x%02x\n", tmp, QUSB2PHY_PORT_TUNE3);
+	pr_debug("33 value: 0x%02x addr: 0x%02x\n", tmp, QUSB2PHY_PORT_TUNE3);
 	if (delay)
 		usleep_range(delay, (delay + 2000));
 
 	tmp = readl_relaxed(base + QUSB2PHY_PORT_TUNE4);
-	pr_err("44 value: 0x%02x addr: 0x%02x\n", tmp, QUSB2PHY_PORT_TUNE4);
+	pr_debug("44 value: 0x%02x addr: 0x%02x\n", tmp, QUSB2PHY_PORT_TUNE4);
 }
 #endif
 #endif
@@ -526,27 +527,28 @@ static int msm_hsphy_init(struct usb_phy *uphy)
 		dev_dbg(uphy->dev, "rcal_mask:%08x reg:%pK code:%08x\n",
 				phy->rcal_mask, phy->phy_rcal_reg, rcal_code);
 	}
+
 #ifndef OPLUS_CUSTOM_OP_DEF
 #ifdef CONFIG_OPLUS_SM8150R_CHARGER
 	/*add for dynamic change tune settings*/
 	/* If phy_tune1 modparam set, override tune1 value */
 	if (dev_phy_tune1) {
-		pr_err("%s():oplus (modparam) TUNE1 val:0x%02x\n", __func__, dev_phy_tune1);
+		pr_debug("%s():oplus (modparam) TUNE1 val:0x%02x\n", __func__, dev_phy_tune1);
 		writel_relaxed(dev_phy_tune1, phy->base + QUSB2PHY_PORT_TUNE1);
 	}
 	/* If phy_tune2 modparam set, override tune2 value */
 	if (dev_phy_tune2) {
-		pr_err("%s():oplus (modparam) TUNE2 val:0x%02x\n", __func__, dev_phy_tune2);
+		pr_debug("%s():oplus (modparam) TUNE2 val:0x%02x\n", __func__, dev_phy_tune2);
 		writel_relaxed(dev_phy_tune2, phy->base + QUSB2PHY_PORT_TUNE2);
 	}
 	/* If phy_tune3 modparam set, override tune3 value */
 	if (dev_phy_tune3) {
-		pr_err("%s():oplus (modparam) TUNE3 val:0x%02x\n", __func__, dev_phy_tune3);
+		pr_debug("%s():oplus (modparam) TUNE3 val:0x%02x\n", __func__, dev_phy_tune3);
 		writel_relaxed(dev_phy_tune3, phy->base + QUSB2PHY_PORT_TUNE3);
 	}
 	/* If phy_tune4 modparam set, override tune4 value */
 	if (dev_phy_tune4) {
-		pr_err("%s():oplus (modparam) TUNE4 val:0x%02x\n", __func__, dev_phy_tune4);
+		pr_debug("%s():oplus (modparam) TUNE4 val:0x%02x\n", __func__, dev_phy_tune4);
 		writel_relaxed(dev_phy_tune4, phy->base + QUSB2PHY_PORT_TUNE4);
 	}
 #endif
@@ -600,14 +602,13 @@ static int msm_hsphy_set_suspend(struct usb_phy *uphy, int suspend)
 	}
 
 	if (suspend) { /* Bus suspend */
-		if (phy->cable_connected ||
-			(phy->phy.flags & PHY_HOST_MODE)) {
-			/* Enable auto-resume functionality only when
-			 * there is some peripheral connected and real
-			 * bus suspend happened
+		if (phy->cable_connected) {
+			/* Enable auto-resume functionality only during host
+			 * mode bus suspend with some peripheral connected.
 			 */
-			if ((phy->phy.flags & PHY_HSFS_MODE) ||
-				(phy->phy.flags & PHY_LS_MODE)) {
+			if ((phy->phy.flags & PHY_HOST_MODE) &&
+				((phy->phy.flags & PHY_HSFS_MODE) ||
+				(phy->phy.flags & PHY_LS_MODE))) {
 				/* Enable auto-resume functionality by pulsing
 				 * signal
 				 */
@@ -768,6 +769,14 @@ static int msm_hsphy_dpdm_regulator_disable(struct regulator_dev *rdev)
 	mutex_lock(&phy->phy_lock);
 	if (phy->dpdm_enable) {
 		if (!phy->cable_connected) {
+			/*
+			 * Phy reset is needed in case multiple instances
+			 * of HSPHY exists with shared power supplies. This
+			 * reset is to bring out the PHY from high-Z state
+			 * and avoid extra current consumption.
+			 *
+			 */
+			msm_hsphy_reset(phy);
 			ret = msm_hsphy_enable_power(phy, false);
 			if (ret < 0) {
 				mutex_unlock(&phy->phy_lock);

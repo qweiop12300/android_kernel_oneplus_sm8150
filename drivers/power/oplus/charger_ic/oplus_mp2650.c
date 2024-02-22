@@ -73,7 +73,7 @@ extern void mt_power_off(void);
 #include "../oplus_gauge.h"
 #include <oplus_mp2650.h>
 #include "../oplus_wireless.h"
-#include <soc/oplus/system/boot_mode.h>
+#include <soc/oplus/boot_mode.h>
 
 #define DEBUG_BY_FILE_OPS
 

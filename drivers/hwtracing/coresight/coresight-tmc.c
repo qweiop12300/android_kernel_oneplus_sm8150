@@ -187,7 +187,7 @@ static int tmc_read_prepare(struct tmc_drvdata *drvdata)
 {
 	int ret = 0;
 
-	if (!drvdata->enable)
+	if (!drvdata->enable || !drvdata->csdev->enable)
 		return -EPERM;
 
 	switch (drvdata->config_type) {
@@ -211,6 +211,9 @@ static int tmc_read_prepare(struct tmc_drvdata *drvdata)
 static int tmc_read_unprepare(struct tmc_drvdata *drvdata)
 {
 	int ret = 0;
+
+	if (!drvdata->csdev->enable)
+		return -EPERM;
 
 	switch (drvdata->config_type) {
 	case TMC_CONFIG_TYPE_ETB:
@@ -427,7 +430,7 @@ static ssize_t out_mode_store(struct device *dev,
 
 	if (strlen(buf) >= 10)
 		return -EINVAL;
-	if (sscanf(buf, "%10s", str) != 1)
+	if (sscanf(buf, "%s", str) != 1)
 		return -EINVAL;
 	ret = tmc_etr_switch_mode(drvdata, str);
 	return ret ? ret : size;
@@ -452,7 +455,7 @@ static ssize_t pcie_path_store(struct device *dev,
 
 	if (strlen(buf) >= 10)
 		return -EINVAL;
-	if (sscanf(buf, "%10s", str) != 1)
+	if (sscanf(buf, "%s", str) != 1)
 		return -EINVAL;
 
 	mutex_lock(&drvdata->mem_lock);

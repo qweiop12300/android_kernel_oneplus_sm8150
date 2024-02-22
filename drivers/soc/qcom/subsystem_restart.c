@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2020, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -43,9 +43,9 @@
 
 #include "peripheral-loader.h"
 
-#ifdef OPLUS_BUG_STABILITY
+//#ifdef OPLUS_BUG_STABILITY
 #include <soc/oplus/system/oplus_project.h>
-#endif /*OPLUS_BUG_STABILITY */
+//#endif /*OPLUS_BUG_STABILITY */
 
 #define DISABLE_SSR 0x9889deed
 /* If set to 0x9889deed, call to subsystem_restart_dev() returns immediately */
@@ -102,8 +102,6 @@ enum p_subsys_state {
 	SUBSYS_CRASHED,
 	SUBSYS_RESTARTING,
 };
-
-#define MAX_REASON_LEN 300
 
 /**
  * enum subsys_state - state of a subsystem (public)
@@ -217,25 +215,6 @@ struct subsys_device {
 	int notif_state;
 	struct list_head list;
 };
-
-#ifdef OPLUS_FEATURE_ADSP_RECOVERY
-static bool oplus_adsp_ssr = false;
-
-void oplus_set_ssr_state(bool ssr_state)
-{
-	oplus_adsp_ssr = ssr_state;
-	pr_err("%s():oplus_adsp_ssr=%d\n", __func__, oplus_adsp_ssr);
-
-}
-EXPORT_SYMBOL(oplus_set_ssr_state);
-
-bool oplus_get_ssr_state(void)
-{
-	pr_err("%s():oplus_adsp_ssr=%d\n", __func__, oplus_adsp_ssr);
-	return oplus_adsp_ssr;
-}
-EXPORT_SYMBOL(oplus_get_ssr_state);
-#endif /* OPLUS_FEATURE_ADSP_RECOVERY */
 
 static struct subsys_device *to_subsys(struct device *d)
 {
@@ -829,6 +808,7 @@ static int subsystem_powerup(struct subsys_device *dev, void *data)
 	pr_info("[%s:%d]: Powering up %s\n", current->comm, current->pid, name);
 	reinit_completion(&dev->err_ready);
 
+	enable_all_irqs(dev);
 	ret = dev->desc->powerup(dev->desc);
 	if (ret < 0) {
 		notify_each_subsys_device(&dev, 1, SUBSYS_POWERUP_FAILURE,
@@ -844,7 +824,6 @@ static int subsystem_powerup(struct subsys_device *dev, void *data)
 			pr_err("Powerup failure on %s\n", name);
 		return ret;
 	}
-	enable_all_irqs(dev);
 
 	ret = wait_for_err_ready(dev);
 	if (ret) {
@@ -1003,6 +982,11 @@ void *__subsystem_get(const char *name, const char *fw_name)
 
 	if (!name)
 		return NULL;
+
+        //19861 is 8150P + X55, need delay modem start to ensure wifi work normally
+        //This patch is from 19861 R version
+        if (fw_name && !strcmp(fw_name, "modem") && (get_project() == 19861))
+                msleep(3000);
 
 	subsys = retval = find_subsys_device(name);
 	if (!subsys)
@@ -1260,67 +1244,6 @@ static void device_restart_work_hdlr(struct work_struct *work)
 							dev->desc->name);
 }
 
-#ifdef OPLUS_FEATURE_MODEM_MINIDUMP
-unsigned int getBKDRHash(char *str, unsigned int len)
-{
-	unsigned int seed = 131; /* 31 131 1313 13131 131313 etc.. */
-	unsigned int hash = 0;
-	unsigned int i    = 0;
-	if (str == NULL) {
-		return 0;
-	}
-	for(i = 0; i < len; str++, i++) {
-		hash = (hash * seed) + (*str);
-	}
-	return hash;
-}
-EXPORT_SYMBOL(getBKDRHash);
-
-void __subsystem_send_uevent(struct device *dev, char *reason)
-{
-	int ret_val;
-	char modem_event[] = "MODEM_EVENT=modem_failure";
-	char modem_reason[300] = {0};
-	char modem_hashreason[MAX_REASON_LEN] = {0};
-	char *envp[4];
-	unsigned int hashid = 0;
-
-	envp[0] = (char *)&modem_event;
-	if(reason){
-		snprintf(modem_reason, sizeof(modem_reason),"MODEM_REASON=%s", reason);
-	}else{
-	    snprintf(modem_reason, sizeof(modem_reason),"MODEM_REASON=unkown");
-	}
-	modem_reason[299] = 0;
-	envp[1] = (char *)&modem_reason;
-
-	hashid = getBKDRHash(reason, strlen(reason));
-	snprintf(modem_hashreason, sizeof(modem_hashreason), "MODEM_HASH_REASON=fid:%u;cause:%s", hashid, reason);
-	modem_hashreason[MAX_REASON_LEN - 1] = 0;
-	pr_info("__subsystem_send_uevent: modem_hashreason: %s\n", modem_hashreason);
-	envp[2] = (char *)&modem_hashreason;
-
-	envp[3] = 0;
-
-	if(dev){
-		ret_val = kobject_uevent_env(&(dev->kobj), KOBJ_CHANGE, envp);
-		if(!ret_val){
-			pr_info("modem crash:kobject_uevent_env success!\n");
-		}else{
-			pr_info("modem crash:kobject_uevent_env fail,error=%d!\n", ret_val);
-		}
-    }
-}
-EXPORT_SYMBOL(__subsystem_send_uevent);
-
-void subsystem_send_uevent(struct subsys_device *dev, char *reason)
-{
-	__subsystem_send_uevent(&(dev->dev), reason);
-	return;
-}
-EXPORT_SYMBOL(subsystem_send_uevent);
-#endif /*OPLUS_FEATURE_MODEM_MINIDUMP*/
-
 int subsystem_restart_dev(struct subsys_device *dev)
 {
 	const char *name;
@@ -1334,17 +1257,6 @@ int subsystem_restart_dev(struct subsys_device *dev)
 	}
 
 	name = dev->desc->name;
-
-	#ifdef OPLUS_FEATURE_ADSP_RECOVERY
-	if (name && !strcmp(name, "adsp")) {
-		if (oplus_get_ssr_state()) {
-			pr_err("%s: adsp restarting, Ignoring request\n", __func__);
-			return 0;
-		} else {
-			oplus_set_ssr_state(true);
-		}
-	}
-	#endif /* OPLUS_FEATURE_ADSP_RECOVERY */
 
 	send_early_notifications(dev->early_notify);
 
@@ -1924,10 +1836,6 @@ struct subsys_device *subsys_register(struct subsys_desc *desc)
 	subsys->dev.bus = &subsys_bus_type;
 	subsys->dev.release = subsys_device_release;
 	subsys->notif_state = -1;
-#ifdef OPLUS_BUG_STABILITY
-        if(!oplus_daily_build() && !(get_eng_version() == AGING))
-                subsys->restart_level = RESET_SUBSYS_COUPLED;
-#endif /*OPLUS_BUG_STABILITY */
 	subsys->desc->sysmon_pid = -1;
 	subsys->desc->state = NULL;
 	strlcpy(subsys->desc->fw_name, desc->name,

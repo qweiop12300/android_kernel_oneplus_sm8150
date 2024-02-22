@@ -33,19 +33,6 @@
  * space. Unused/unknown fields will not appear in sysfs.
  */
 
-/*lizhijie add for temp_compile*/
-/****************************************************/
-#ifndef VENDOR_EDIT
-#define VENDOR_EDIT "VENDOR_EDIT"
-#endif
-/****************************************************/
-/*lizhijie add for temp_compile*/
-/****************************************************/
-#ifndef VENDOR_EDIT
-#define VENDOR_EDIT "VENDOR_EDIT"
-#endif
-/****************************************************/
-
 enum {
 	POWER_SUPPLY_STATUS_UNKNOWN = 0,
 	POWER_SUPPLY_STATUS_CHARGING,
@@ -183,7 +170,7 @@ enum power_supply_property {
 	POWER_SUPPLY_PROP_MMI_CHARGING_ENABLE,
 	POWER_SUPPLY_PROP_OTG_SWITCH,
 	POWER_SUPPLY_PROP_OTG_ONLINE,
-    POWER_SUPPLY_PROP_FAST_CHG_TYPE,
+	POWER_SUPPLY_PROP_FAST_CHG_TYPE,
 	POWER_SUPPLY_PROP_BATTERY_FCC,
 	POWER_SUPPLY_PROP_BATTERY_SOH,
 	POWER_SUPPLY_PROP_BATTERY_CC,
@@ -331,7 +318,7 @@ enum power_supply_property {
 	POWER_SUPPLY_PROP_PE_START,
 	POWER_SUPPLY_PROP_SOC_REPORTING_READY,
 #ifdef VENDOR_EDIT
-/* Ji.Xu PSW.BSP.CHG  2018-07-23  Save battery capacity to persist partition */
+	/* Ji.Xu PSW.BSP.CHG  2018-07-23  Save battery capacity to persist partition */
 	POWER_SUPPLY_PROP_SOC_NOTIFY_READY,
 	POWER_SUPPLY_PROP_RESTORE_SOC,
 #endif /* VENDOR_EDIT */

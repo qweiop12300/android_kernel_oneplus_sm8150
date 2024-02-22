@@ -2252,12 +2252,12 @@ static const struct snd_kcontrol_new wsa_macro_snd_controls[] = {
 			WSA_MACRO_SOFTCLIP1, 1, 0,
 			wsa_macro_soft_clip_enable_get,
 			wsa_macro_soft_clip_enable_put),
-	SOC_SINGLE_SX_TLV("WSA_RX0 Digital Volume",
+	SOC_SINGLE_S8_TLV("WSA_RX0 Digital Volume",
 			  BOLERO_CDC_WSA_RX0_RX_VOL_CTL,
-			  0, -84, 40, digital_gain),
-	SOC_SINGLE_SX_TLV("WSA_RX1 Digital Volume",
+			  -84, 40, digital_gain),
+	SOC_SINGLE_S8_TLV("WSA_RX1 Digital Volume",
 			  BOLERO_CDC_WSA_RX1_RX_VOL_CTL,
-			  0, -84, 40, digital_gain),
+			  -84, 40, digital_gain),
 	SOC_SINGLE_EXT("WSA_RX0 Digital Mute", SND_SOC_NOPM, WSA_MACRO_RX0, 1,
 			0, wsa_macro_get_rx_mute_status,
 			wsa_macro_set_rx_mute_status),
@@ -2740,9 +2740,6 @@ static int wsa_swrm_clock(void *handle, bool enable)
 					BOLERO_CDC_WSA_CLK_RST_CTRL_SWR_CONTROL,
 					0x02, 0x00);
 			wsa_priv->reset_swr = false;
-			regmap_update_bits(regmap,
-				BOLERO_CDC_WSA_CLK_RST_CTRL_SWR_CONTROL,
-				0x1C, 0x0C);
 			msm_cdc_pinctrl_select_active_state(
 						wsa_priv->wsa_swr_gpio_p);
 		}

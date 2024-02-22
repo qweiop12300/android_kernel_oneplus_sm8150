@@ -1,6 +1,3 @@
-#if defined(OP_8150_ADAPT)
-#include "cam_isp_op.h"
-#else
 #ifndef __UAPI_CAM_ISP_H__
 #define __UAPI_CAM_ISP_H__
 
@@ -93,10 +90,10 @@
 #define CAM_ISP_GENERIC_BLOB_TYPE_UBWC_CONFIG               3
 #define CAM_ISP_GENERIC_BLOB_TYPE_CSID_CLOCK_CONFIG         4
 #define CAM_ISP_GENERIC_BLOB_TYPE_FE_CONFIG                 5
-#define CAM_ISP_GENERIC_BLOB_TYPE_BW_CONFIG_V2              6
+#define CAM_ISP_GENERIC_BLOB_TYPE_FPS_CONFIG                6
+#define CAM_ISP_GENERIC_BLOB_TYPE_BW_CONFIG_V2              7
 #define CAM_ISP_GENERIC_BLOB_TYPE_INIT_FRAME_DROP           10
 #define CAM_ISP_GENERIC_BLOB_TYPE_SENSOR_DIMENSION_CONFIG   11
-#define CAM_ISP_GENERIC_BLOB_TYPE_FPS_CONFIG                12
 
 /* Per Path Usage Data */
 #define CAM_ISP_USAGE_INVALID     0
@@ -555,5 +552,4 @@ struct cam_isp_init_frame_drop_config {
 	uint32_t                       init_frame_drop;
 } __attribute__((packed));
 
-#endif
 #endif /* __UAPI_CAM_ISP_H__ */

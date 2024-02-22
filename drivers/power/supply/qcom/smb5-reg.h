@@ -66,14 +66,10 @@ enum {
 
 #ifdef VENDOR_EDIT
 #define BATTERY_CHARGER_STATUS_8_REG			(CHGR_BASE + 0x0E)
-//#define PRE_FAST_BIT					BIT(7)
 #define PRE_FULLON_BIT					BIT(6)
-//#define PRE_RCHG_BIT					BIT(5)
 #define PRE_INHIBIT_BIT					BIT(3)
 #define PRE_OVRV_BIT					BIT(4)
 #define PRE_TERM_BIT					BIT(2)
-//#define BAT_ID_BMISS_CMP_BIT				BIT(1)
-//#define THERM_CMP_BIT					BIT(0)
 #endif
 
 #define CHARGING_ENABLE_CMD_REG			(CHGR_BASE + 0x42)

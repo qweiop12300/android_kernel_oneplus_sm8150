@@ -121,9 +121,9 @@
 #define WAIT_XFER_MAX_ITER	(2)
 #define WAIT_XFER_MAX_TIMEOUT_US	(10000)
 #define WAIT_XFER_MIN_TIMEOUT_US	(9000)
-#define IPC_LOG_PWR_PAGES	(10)
-#define IPC_LOG_MISC_PAGES	(30)
-#define IPC_LOG_TX_RX_PAGES	(30)
+#define IPC_LOG_PWR_PAGES	(6)
+#define IPC_LOG_MISC_PAGES	(10)
+#define IPC_LOG_TX_RX_PAGES	(10)
 #define DATA_BYTES_PER_LINE	(32)
 
 #define M_IRQ_BITS		(M_RX_FIFO_WATERMARK_EN | M_RX_FIFO_LAST_EN |\
@@ -198,7 +198,6 @@ struct msm_geni_serial_port {
 	void *ipc_log_pwr;
 	void *ipc_log_misc;
 	void *console_log;
-	void *ipc_log_irqstatus;
 	unsigned int cur_baud;
 	int ioctl_count;
 	int edge_count;
@@ -415,21 +414,6 @@ static bool geni_wait_for_cmd_done(struct uart_port *uport, bool is_irq_masked)
 
 	return timeout ? 0 : 1;
 }
-
-#ifdef OPLUS_FEATURE_POWERINFO_FTM
-static struct pinctrl *serial_pinctrl = NULL;
-static struct pinctrl_state *serial_pinctrl_state_disable = NULL;
-#endif
-
-#ifdef OPLUS_FEATURE_POWERINFO_FTM
-extern bool oem_disable_uart(void);
-bool boot_with_console(void)
-{
-	return !oem_disable_uart();
-}
-
-EXPORT_SYMBOL(boot_with_console);
-#endif
 
 static void msm_geni_serial_config_port(struct uart_port *uport, int cfg_flags)
 {
@@ -979,12 +963,6 @@ __msm_geni_serial_console_write(struct uart_port *uport, const char *s,
 	int fifo_depth = DEF_FIFO_DEPTH_WORDS;
 	int tx_wm = DEF_TX_WM;
 
-#ifdef OPLUS_FEATURE_POWERINFO_FTM
-	if (!boot_with_console()) {
-		return;
-	}
-#endif
-
 	for (i = 0; i < count; i++) {
 		if (s[i] == '\n')
 			new_line++;
@@ -1466,13 +1444,13 @@ static void start_rx_sequencer(struct uart_port *uport)
 		msm_geni_serial_stop_rx(uport);
 	}
 
-	/* Start RX with the RFR_OPEN to keep RFR in always ready state */
-	msm_geni_serial_enable_interrupts(uport);
-	geni_setup_s_cmd(uport->membase, UART_START_READ, geni_se_param);
-
 	if (port->xfer_mode == SE_DMA)
 		geni_se_rx_dma_start(uport->membase, DMA_RX_BUF_SIZE,
 							&port->rx_dma);
+
+	/* Start RX with the RFR_OPEN to keep RFR in always ready state */
+	geni_setup_s_cmd(uport->membase, UART_START_READ, geni_se_param);
+	msm_geni_serial_enable_interrupts(uport);
 
 	/* Ensure that the above writes go through */
 	mb();
@@ -2286,10 +2264,6 @@ static int msm_geni_serial_port_setup(struct uart_port *uport)
 						SE_GENI_RX_PACKING_CFG0);
 		geni_write_reg_nolog(cfg1, uport->membase,
 						SE_GENI_RX_PACKING_CFG1);
-		msm_port->handle_rx = handle_rx_hs;
-		msm_port->rx_fifo = devm_kzalloc(uport->dev,
-				sizeof(msm_port->rx_fifo_depth * sizeof(u32)),
-								GFP_KERNEL);
 		if (!msm_port->rx_fifo) {
 			ret = -ENOMEM;
 			goto exit_portsetup;
@@ -2811,6 +2785,12 @@ static void msm_geni_serial_cancel_rx(struct uart_port *uport)
 	unsigned int irq_status;
 	u32 rx_fifo_status;
 	u32 rx_fifo_wc;
+	u32 geni_status;
+
+	geni_status = geni_read_reg_nolog(uport->membase, SE_GENI_STATUS);
+	/* Possible thats stop rx is already done from UEFI end */
+	if (!(geni_status & S_GENI_CMD_ACTIVE))
+		return;
 
 	geni_cancel_s_cmd(uport->membase);
 	/* Ensure this goes through before polling. */
@@ -2995,7 +2975,7 @@ static void console_unregister(struct uart_driver *drv)
 static void msm_geni_serial_debug_init(struct uart_port *uport, bool console)
 {
 	struct msm_geni_serial_port *msm_port = GET_DEV_PORT(uport);
-	char name[35];
+	char name[30];
 
 	msm_port->dbg = debugfs_create_dir(dev_name(uport->dev), NULL);
 	if (IS_ERR_OR_NULL(msm_port->dbg))
@@ -3037,15 +3017,6 @@ static void msm_geni_serial_debug_init(struct uart_port *uport, bool console)
 					IPC_LOG_MISC_PAGES, name, 0);
 			if (!msm_port->ipc_log_misc)
 				dev_info(uport->dev, "Err in Misc IPC Log\n");
-		}
-		memset(name, 0, sizeof(name));
-		if (!msm_port->ipc_log_irqstatus) {
-			scnprintf(name, sizeof(name), "%s%s",
-					dev_name(uport->dev), "_irqstatus");
-			msm_port->ipc_log_irqstatus = ipc_log_context_create(
-					IPC_LOG_MISC_PAGES, name, 0);
-			if (!msm_port->ipc_log_irqstatus)
-				dev_info(uport->dev, "Err in irqstatus IPC Log\n");
 		}
 	} else {
 		memset(name, 0, sizeof(name));
@@ -3185,30 +3156,6 @@ exit_ver_info:
 	return ret;
 }
 
-#ifdef OPLUS_FEATURE_POWERINFO_FTM
-static bool oplus_charge_id_reconfig(struct platform_device *pdev, struct uart_driver *drv)
-{
-	//TODO: add charger id control here
-	if (drv == &msm_geni_console_driver) {
-		pr_err("%s: console start get pinctrl\n", __FUNCTION__);
-		serial_pinctrl = devm_pinctrl_get(&pdev->dev);
-		if (IS_ERR_OR_NULL(serial_pinctrl)) {
-			dev_err(&pdev->dev, "No serial_pinctrl config specified!\n");
-		} else {
-			serial_pinctrl_state_disable =
-			pinctrl_lookup_state(serial_pinctrl, PINCTRL_SLEEP);
-			if (IS_ERR_OR_NULL(serial_pinctrl_state_disable)) {
-				dev_err(&pdev->dev, "No serial_pinctrl_state_disable config specified!\n");
-			} else {
-				pinctrl_select_state(serial_pinctrl, serial_pinctrl_state_disable);
-			}
-		}
-		return true;
-	}
-	return false;
-}
-#endif
-
 static int msm_geni_serial_probe(struct platform_device *pdev)
 {
 	int ret = 0;
@@ -3232,12 +3179,6 @@ static int msm_geni_serial_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "%s: No matching device found", __func__);
 		return -ENODEV;
 	}
-	
-#ifdef OPLUS_FEATURE_POWERINFO_FTM
-   if (!boot_with_console() && oplus_charge_id_reconfig(pdev, drv)) { 
-		return -ENODEV; 
-	}
-#endif
 
 	if (pdev->dev.of_node) {
 		if (drv->cons) {
@@ -3449,6 +3390,10 @@ static int msm_geni_serial_probe(struct platform_device *pdev)
 		dev_port->rx_fifo = devm_kzalloc(uport->dev, sizeof(u32),
 								GFP_KERNEL);
 	} else {
+		dev_port->handle_rx = handle_rx_hs;
+		dev_port->rx_fifo = devm_kzalloc(uport->dev,
+				sizeof(dev_port->rx_fifo_depth * sizeof(u32)),
+								GFP_KERNEL);
 		if (dev_port->pm_auto_suspend_disable) {
 			pm_runtime_set_active(&pdev->dev);
 			pm_runtime_forbid(&pdev->dev);
@@ -3714,8 +3659,8 @@ static void msm_geni_serial_ssr_down(struct device *dev)
 	port->uart_ssr.is_ssr_down = true;
 	ret = pm_runtime_force_suspend(uport->dev);
 	if (ret) {
-		dev_err(uport->dev, "%s:force suspend failed %d\n",
-						ret, __func__);
+		dev_err(uport->dev, "%s:force suspend failed %d\n", __func__,
+			ret);
 		goto exit;
 	}
 
@@ -3775,12 +3720,6 @@ static int __init msm_geni_serial_init(void)
 		msm_geni_console_port.uport.flags = UPF_BOOT_AUTOCONF;
 		msm_geni_console_port.uport.line = i;
 	}
-
-#ifdef OPLUS_FEATURE_POWERINFO_FTM
-	if (!boot_with_console()) {
-		msm_geni_console_driver.cons = NULL;
-	}
-#endif
 
 	ret = console_register(&msm_geni_console_driver);
 	if (ret)

@@ -57,6 +57,14 @@ struct keyslot_manager;
  */
 #define BLKCG_MAX_POLS		3
 
+static inline int blk_validate_block_size(unsigned int bsize)
+{
+	if (bsize < 512 || bsize > PAGE_SIZE || !is_power_of_2(bsize))
+		return -EINVAL;
+
+	return 0;
+}
+
 typedef void (rq_end_io_fn)(struct request *, blk_status_t);
 
 #define BLK_RL_SYNCFULL		(1U << 0)
@@ -98,9 +106,6 @@ typedef __u32 __bitwise req_flags_t;
 #define RQF_MQ_INFLIGHT		((__force req_flags_t)(1 << 6))
 /* don't call prep for this one */
 #define RQF_DONTPREP		((__force req_flags_t)(1 << 7))
-/* set for "ide_preempt" requests and also for requests for which the SCSI
-   "quiesce" state must be ignored. */
-#define RQF_PREEMPT		((__force req_flags_t)(1 << 8))
 /* contains copies of user pages */
 #define RQF_COPY_USER		((__force req_flags_t)(1 << 9))
 /* vaguely specified driver internal error.  Ignored by the block layer */
@@ -122,9 +127,6 @@ typedef __u32 __bitwise req_flags_t;
 /* Look at ->special_vec for the actual data payload instead of the
    bio chain. */
 #define RQF_SPECIAL_PAYLOAD	((__force req_flags_t)(1 << 18))
-
-/* increased nr_pending for this request */
-#define RQF_PM_ADDED		((__force req_flags_t)(1 << 19))
 
 /* flags that prevent us from merging requests: */
 #define RQF_NOMERGE_FLAGS \
@@ -150,19 +152,6 @@ struct request {
 	unsigned int cmd_flags;		/* op and common flags */
 	req_flags_t rq_flags;
 
-#if defined(OPLUS_FEATURE_IOMONITOR) && defined(CONFIG_IOMONITOR)
-	ktime_t req_tg;
-	ktime_t req_ti;
-	ktime_t req_td;
-	ktime_t req_tc;
-#endif /*OPLUS_FEATURE_IOMONITOR*/
-
-#ifdef VENDOR_EDIT
-	ktime_t block_io_start;  //save block io start ktime
-	ktime_t ufs_io_start; //save ufs io start ktime
-	u64 flash_io_latency; //save mmc host command latency
-#endif /*VENDOR_EDIT*/
-
 	int internal_tag;
 
 	unsigned long atomic_flags;
@@ -175,9 +164,6 @@ struct request {
 	struct bio *bio;
 	struct bio *biotail;
 
-#if defined(OPLUS_FEATURE_FG_IO_OPT) && defined(CONFIG_OPLUS_FG_IO_OPT)
-	struct list_head fg_list;
-#endif /*OPLUS_FEATURE_FG_IO_OPT*/
 	/*
 	 * The hash is used inside the scheduler, and killed once the
 	 * request reaches the dispatch list. The ipi_list is only used
@@ -429,13 +415,6 @@ struct request_queue {
 	 * Together with queue_head for cacheline sharing
 	 */
 	struct list_head	queue_head;
-#if defined(OPLUS_FEATURE_FG_IO_OPT) && defined(CONFIG_OPLUS_FG_IO_OPT)
-	struct list_head	fg_head;
-	int fg_count;
-	int both_count;
-	int fg_count_max;
-	int both_count_max;
-#endif /*OPLUS_FEATURE_FG_IO_OPT*/
 	struct request		*last_merge;
 	struct elevator_queue	*elevator;
 	int			nr_rqs[2];	/* # allocated [a]sync rqs */
@@ -563,14 +542,8 @@ struct request_queue {
 	struct list_head	tag_busy_list;
 
 	unsigned int		nr_sorted;
-#ifndef OPLUS_FEATURE_HEALTHINFO
-// Modify for ioqueue
 	unsigned int		in_flight[2];
-#else /* OPLUS_FEATURE_HEALTHINFO */
-#ifdef CONFIG_OPLUS_HEALTHINFO
-	unsigned int		in_flight[4];
-#endif
-#endif /* OPLUS_FEATURE_HEALTHINFO */
+
 	/*
 	 * Number of active block driver functions for which blk_drain_queue()
 	 * must wait. Must be incremented around functions that unlock the
@@ -609,7 +582,7 @@ struct request_queue {
 	unsigned int		sg_reserved_size;
 	int			node;
 #ifdef CONFIG_BLK_DEV_IO_TRACE
-	struct blk_trace	*blk_trace;
+	struct blk_trace __rcu	*blk_trace;
 	struct mutex		blk_trace_mutex;
 #endif
 	/*
@@ -658,10 +631,6 @@ struct request_queue {
 
 #define BLK_MAX_WRITE_HINTS	5
 	u64			write_hints[BLK_MAX_WRITE_HINTS];
-
-#if defined(VENDOR_EDIT) && defined(CONFIG_UFSTW)
-	bool			turbo_write_dev;
-#endif
 };
 
 #define QUEUE_FLAG_QUEUED	0	/* uses generic tag queueing */
@@ -695,7 +664,6 @@ struct request_queue {
 #define QUEUE_FLAG_SCSI_PASSTHROUGH 27	/* queue supports SCSI commands */
 #define QUEUE_FLAG_QUIESCED    28	/* queue has been quiesced */
 #define QUEUE_FLAG_PREEMPT_ONLY 29	/* only process REQ_PREEMPT requests */
-#define QUEUE_FLAG_INLINECRYPT 30      /* inline encryption support */
 
 #define QUEUE_FLAG_DEFAULT	((1 << QUEUE_FLAG_IO_STAT) |		\
 				 (1 << QUEUE_FLAG_STACKABLE)	|	\
@@ -774,29 +742,6 @@ static inline void queue_flag_clear(unsigned int flag, struct request_queue *q)
 	queue_lockdep_assert_held(q);
 	__clear_bit(flag, &q->queue_flags);
 }
-
-#ifdef OPLUS_FEATURE_HEALTHINFO
-// Add for ioqueue
-#ifdef CONFIG_OPLUS_HEALTHINFO
-static inline void ohm_ioqueue_add_inflight(struct request_queue *q,
-					     struct request *rq)
-{
-	if (rq->cmd_flags & REQ_FG)
-		q->in_flight[BLK_RW_FG]++;
-	else
-		q->in_flight[BLK_RW_BG]++;
-}
-
-static inline void ohm_ioqueue_dec_inflight(struct request_queue *q,
-					     struct request *rq)
-{
-	if (rq->cmd_flags & REQ_FG)
-		q->in_flight[BLK_RW_FG]--;
-	else
-		q->in_flight[BLK_RW_BG]--;
-}
-#endif
-#endif /* OPLUS_FEATURE_HEALTHINFO */
 
 #define blk_queue_tagged(q)	test_bit(QUEUE_FLAG_QUEUED, &(q)->queue_flags)
 #define blk_queue_stopped(q)	test_bit(QUEUE_FLAG_STOPPED, &(q)->queue_flags)
@@ -1090,6 +1035,19 @@ static inline struct request_queue *bdev_get_queue(struct block_device *bdev)
 }
 
 /*
+ * The basic unit of block I/O is a sector. It is used in a number of contexts
+ * in Linux (blk, bio, genhd). The size of one sector is 512 = 2**9
+ * bytes. Variables of type sector_t represent an offset or size that is a
+ * multiple of 512 bytes. Hence these two constants.
+ */
+#ifndef SECTOR_SHIFT
+#define SECTOR_SHIFT 9
+#endif
+#ifndef SECTOR_SIZE
+#define SECTOR_SIZE (1 << SECTOR_SHIFT)
+#endif
+
+/*
  * blk_rq_pos()			: the current sector
  * blk_rq_bytes()		: bytes left in the entire request
  * blk_rq_cur_bytes()		: bytes left in the current segment
@@ -1116,12 +1074,12 @@ extern unsigned int blk_rq_err_bytes(const struct request *rq);
 
 static inline unsigned int blk_rq_sectors(const struct request *rq)
 {
-	return blk_rq_bytes(rq) >> 9;
+	return blk_rq_bytes(rq) >> SECTOR_SHIFT;
 }
 
 static inline unsigned int blk_rq_cur_sectors(const struct request *rq)
 {
-	return blk_rq_cur_bytes(rq) >> 9;
+	return blk_rq_cur_bytes(rq) >> SECTOR_SHIFT;
 }
 
 /*
@@ -1141,7 +1099,8 @@ static inline unsigned int blk_queue_get_max_sectors(struct request_queue *q,
 						     int op)
 {
 	if (unlikely(op == REQ_OP_DISCARD || op == REQ_OP_SECURE_ERASE))
-		return min(q->limits.max_discard_sectors, UINT_MAX >> 9);
+		return min(q->limits.max_discard_sectors,
+			   UINT_MAX >> SECTOR_SHIFT);
 
 	if (unlikely(op == REQ_OP_WRITE_SAME))
 		return q->limits.max_write_same_sectors;
@@ -1450,16 +1409,21 @@ extern int blkdev_issue_zeroout(struct block_device *bdev, sector_t sector,
 static inline int sb_issue_discard(struct super_block *sb, sector_t block,
 		sector_t nr_blocks, gfp_t gfp_mask, unsigned long flags)
 {
-	return blkdev_issue_discard(sb->s_bdev, block << (sb->s_blocksize_bits - 9),
-				    nr_blocks << (sb->s_blocksize_bits - 9),
+	return blkdev_issue_discard(sb->s_bdev,
+				    block << (sb->s_blocksize_bits -
+					      SECTOR_SHIFT),
+				    nr_blocks << (sb->s_blocksize_bits -
+						  SECTOR_SHIFT),
 				    gfp_mask, flags);
 }
 static inline int sb_issue_zeroout(struct super_block *sb, sector_t block,
 		sector_t nr_blocks, gfp_t gfp_mask)
 {
 	return blkdev_issue_zeroout(sb->s_bdev,
-				    block << (sb->s_blocksize_bits - 9),
-				    nr_blocks << (sb->s_blocksize_bits - 9),
+				    block << (sb->s_blocksize_bits -
+					      SECTOR_SHIFT),
+				    nr_blocks << (sb->s_blocksize_bits -
+						  SECTOR_SHIFT),
 				    gfp_mask, 0);
 }
 
@@ -1566,7 +1530,8 @@ static inline int queue_alignment_offset(struct request_queue *q)
 static inline int queue_limit_alignment_offset(struct queue_limits *lim, sector_t sector)
 {
 	unsigned int granularity = max(lim->physical_block_size, lim->io_min);
-	unsigned int alignment = sector_div(sector, granularity >> 9) << 9;
+	unsigned int alignment = sector_div(sector, granularity >> SECTOR_SHIFT)
+		<< SECTOR_SHIFT;
 
 	return (granularity + lim->alignment_offset - alignment) % granularity;
 }
@@ -1600,8 +1565,8 @@ static inline int queue_limit_discard_alignment(struct queue_limits *lim, sector
 		return 0;
 
 	/* Why are these in bytes, not sectors? */
-	alignment = lim->discard_alignment >> 9;
-	granularity = lim->discard_granularity >> 9;
+	alignment = lim->discard_alignment >> SECTOR_SHIFT;
+	granularity = lim->discard_granularity >> SECTOR_SHIFT;
 	if (!granularity)
 		return 0;
 
@@ -1612,7 +1577,7 @@ static inline int queue_limit_discard_alignment(struct queue_limits *lim, sector
 	offset = (granularity + alignment - offset) % granularity;
 
 	/* Turn it back into bytes, gaah */
-	return offset << 9;
+	return offset << SECTOR_SHIFT;
 }
 
 static inline int bdev_discard_alignment(struct block_device *bdev)
@@ -2075,15 +2040,6 @@ static const u_int64_t latency_x_axis_us[] = {
 	7000,
 	9000,
 	10000
-#ifdef VENDOR_EDIT
-	,20000
-	,40000
-	,60000
-	,80000
-	,100000
-	,150000
-	,200000
-#endif
 };
 
 #define BLK_IO_LAT_HIST_DISABLE         0

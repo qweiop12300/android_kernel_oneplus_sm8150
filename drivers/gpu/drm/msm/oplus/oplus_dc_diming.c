@@ -46,12 +46,8 @@ extern atomic_t oplus_dimlayer_hbm_vblank_ref;
 extern int oplus_dc2_alpha;
 extern int oplus_seed_backlight;
 extern int oplus_panel_alpha;
-extern oplus_dc_v2_on;
+extern bool oplus_dc_v2_on;
 extern ktime_t oplus_backlight_time;
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
-extern int oplus_display_mode;
-extern atomic_t aod_onscreenfp_status;
-#endif /* OPLUS_FEATURE_AOD_RAMLESS */
 extern int cmp_display_panel_name(char *istr);
 extern int seed_mode;
 
@@ -96,16 +92,16 @@ int dsi_panel_parse_oplus_dc_config(struct dsi_panel *panel)
 
 	arr = utils->get_property(utils->data, "oplus,dsi-dc-brightness", &length);
 	if (!arr) {
-		DSI_ERR("[%s] oplus,dsi-dc-brightness  not found\n", panel->name);
+		pr_err("[%s] oplus,dsi-dc-brightness  not found\n", panel->name);
 		return -EINVAL;
 	}
 
 	if (length & 0x1) {
-		DSI_ERR("[%s] oplus,dsi-dc-brightness length error\n", panel->name);
+		pr_err("[%s] oplus,dsi-dc-brightness length error\n", panel->name);
 		return -EINVAL;
 	}
 
-	DSI_DEBUG("RESET SEQ LENGTH = %d\n", length);
+	pr_debug("RESET SEQ LENGTH = %d\n", length);
 	length = length / sizeof(u32);
 	size = length * sizeof(u32);
 
@@ -118,7 +114,7 @@ int dsi_panel_parse_oplus_dc_config(struct dsi_panel *panel)
 	rc = utils->read_u32_array(utils->data, "oplus,dsi-dc-brightness",
 					arr_32, length);
 	if (rc) {
-		DSI_ERR("[%s] cannot read dsi-dc-brightness\n", panel->name);
+		pr_err("[%s] cannot read dsi-dc-brightness\n", panel->name);
 		goto error_free_arr_32;
 	}
 
@@ -167,7 +163,7 @@ int oplus_dsi_display_enable_and_waiting_for_next_te_irq(void)
 	reinit_completion(&display->switch_te_gate);
 
 	if (!wait_for_completion_timeout(&display->switch_te_gate, switch_te_timeout)) {
-		DSI_ERR("hbm vsync switch TE check failed\n");
+		pr_err("hbm vsync switch TE check failed\n");
 		oplus_dsi_display_change_te_irq_status(display, false);
 		return -EINVAL;
 	}
@@ -331,6 +327,7 @@ int sde_connector_update_hbm(struct drm_connector *connector)
 	struct sde_connector_state *c_state;
 	int rc = 0;
 	int fingerprint_mode;
+	static int oplus_old_refresh_rate = 0;
 
 	if (!c_conn) {
 		SDE_ERROR("Invalid params sde_connector null\n");
@@ -354,6 +351,17 @@ int sde_connector_update_hbm(struct drm_connector *connector)
 	    !c_conn->encoder->crtc->state) {
 		return 0;
 	}
+
+	if (sde_crtc_get_fingerprint_mode(c_conn->encoder->crtc->state) && !dsi_display->panel->is_hbm_enabled &&
+			dsi_display->panel->cur_mode->timing.refresh_rate != oplus_old_refresh_rate) {
+		SDE_ATRACE_BEGIN("delay_hbm_on_one_frame");
+		pr_err("do not send HBM ON while switch fps");
+		oplus_old_refresh_rate = dsi_display->panel->cur_mode->timing.refresh_rate;
+		SDE_ATRACE_END("delay_hbm_on_one_frame");
+		return 0;
+	}
+
+	oplus_old_refresh_rate = dsi_display->panel->cur_mode->timing.refresh_rate;
 
 	fingerprint_mode = sde_crtc_get_fingerprint_mode(c_conn->encoder->crtc->state);
 
@@ -385,89 +393,66 @@ int sde_connector_update_hbm(struct drm_connector *connector)
 		fod_dimlayer_flag = fingerprint_mode;
 		dsi_display->panel->is_hbm_enabled = fingerprint_mode;
 		if (fingerprint_mode) {
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
-			if (!dsi_display->panel->oplus_priv.is_aod_ramless || oplus_display_mode) {
-#endif /* OPLUS_FEATURE_AOD_RAMLESS */
-				mutex_lock(&dsi_display->panel->panel_lock);
+			mutex_lock(&dsi_display->panel->panel_lock);
 
-				if (!dsi_display->panel->panel_initialized) {
-					dsi_display->panel->is_hbm_enabled = false;
-					pr_err("panel not initialized, failed to Enter OnscreenFingerprint\n");
-					mutex_unlock(&dsi_display->panel->panel_lock);
-					return 0;
-				}
-				dsi_display_clk_ctrl(dsi_display->dsi_clk_handle,
-						DSI_CORE_CLK, DSI_CLK_ON);
-
-				if (oplus_seed_backlight) {
-					int frame_time_us;
-
-					frame_time_us = mult_frac(1000, 1000, panel->cur_mode->timing.refresh_rate);
-					oplus_panel_process_dimming_v2(panel, panel->bl_config.bl_level, true);
-					mipi_dsi_dcs_set_display_brightness(&panel->mipi_device, panel->bl_config.bl_level);
-					oplus_panel_process_dimming_v2_post(panel, true);
-					usleep_range(frame_time_us, frame_time_us + 100);
-				}
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
-				else if (dsi_display->panel->oplus_priv.is_aod_ramless) {
-					ktime_t delta = ktime_sub(ktime_get(), oplus_backlight_time);
-					s64 delta_us = ktime_to_us(delta);
-					if (delta_us < 34000 && delta_us >= 0)
-						usleep_range(34000 - delta_us, 34000 - delta_us + 100);
-				}
-#endif /* OPLUS_FEATURE_AOD_RAMLESS */
-
-				if (OPLUS_DISPLAY_AOD_SCENE != get_oplus_display_scene() &&
-						dsi_display->panel->bl_config.bl_level) {
-					if (dsi_display->config.panel_mode != DSI_OP_VIDEO_MODE) {
-						current_vblank = drm_crtc_vblank_count(crtc);
-						ret = wait_event_timeout(*drm_crtc_vblank_waitqueue(crtc),
-								current_vblank != drm_crtc_vblank_count(crtc),
-								msecs_to_jiffies(17));
-					}
-					if (!strcmp(panel->oplus_priv.vendor_name, "AMS643YE01") || cmp_display_panel_name("SOFEF03F_M"))
-						usleep_range(5500, 5600);
-					if(cmp_display_panel_name("S6E3HC2"))   /*For 18821 and 19801*/
-						usleep_range(6500, 6600);
-					vblank = panel->cur_mode->priv_info->fod_on_vblank;
-					target_vblank = drm_crtc_vblank_count(crtc) + vblank;
-					rc = dsi_panel_tx_cmd_set(dsi_display->panel, DSI_CMD_AOD_HBM_ON);
-
-
-					if (vblank) {
-						ret = wait_event_timeout(*drm_crtc_vblank_waitqueue(crtc),
-								target_vblank == drm_crtc_vblank_count(crtc),
-								msecs_to_jiffies((vblank + 1) * 17));
-						if (!ret) {
-							pr_err("OnscreenFingerprint failed to wait vblank timeout target_vblank=%d current_vblank=%d\n",
-									target_vblank, drm_crtc_vblank_count(crtc));
-						}
-					}
-				} else {
-					rc = dsi_panel_tx_cmd_set(dsi_display->panel, DSI_CMD_AOD_HBM_ON);
-				}
-
-				dsi_display_clk_ctrl(dsi_display->dsi_clk_handle,
-						DSI_CORE_CLK, DSI_CLK_OFF);
-
+			if (!dsi_display->panel->panel_initialized) {
+				dsi_display->panel->is_hbm_enabled = false;
+				pr_err("panel not initialized, failed to Enter OnscreenFingerprint\n");
 				mutex_unlock(&dsi_display->panel->panel_lock);
-				if (rc) {
-					pr_err("failed to send DSI_CMD_HBM_ON cmds, rc=%d\n", rc);
-					return rc;
-				}
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
+				return 0;
 			}
-#endif /* OPLUS_FEATURE_AOD_RAMLESS */
+			dsi_display_clk_ctrl(dsi_display->dsi_clk_handle,
+					DSI_CORE_CLK, DSI_CLK_ON);
+
+			if (oplus_seed_backlight) {
+				int frame_time_us;
+
+				frame_time_us = mult_frac(1000, 1000, panel->cur_mode->timing.refresh_rate);
+				oplus_panel_process_dimming_v2(panel, panel->bl_config.bl_level, true);
+				mipi_dsi_dcs_set_display_brightness(&panel->mipi_device, panel->bl_config.bl_level);
+				oplus_panel_process_dimming_v2_post(panel, true);
+				usleep_range(frame_time_us, frame_time_us + 100);
+			}
+
+			if (OPLUS_DISPLAY_AOD_SCENE != get_oplus_display_scene() &&
+					dsi_display->panel->bl_config.bl_level) {
+				if (dsi_display->config.panel_mode != DSI_OP_VIDEO_MODE) {
+					current_vblank = drm_crtc_vblank_count(crtc);
+					ret = wait_event_timeout(*drm_crtc_vblank_waitqueue(crtc),
+							current_vblank != drm_crtc_vblank_count(crtc),
+							msecs_to_jiffies(17));
+				}
+				if (!strcmp(panel->oplus_priv.vendor_name, "AMS643YE01") || cmp_display_panel_name("SOFEF03F_M"))
+					usleep_range(5500, 5600);
+				if(cmp_display_panel_name("S6E3HC2"))   /*For 18821 and 19801*/
+					usleep_range(6500, 6600);
+				vblank = panel->cur_mode->priv_info->fod_on_vblank;
+				target_vblank = drm_crtc_vblank_count(crtc) + vblank;
+				rc = dsi_panel_tx_cmd_set(dsi_display->panel, DSI_CMD_AOD_HBM_ON);
+
+				if (vblank) {
+					ret = wait_event_timeout(*drm_crtc_vblank_waitqueue(crtc),
+							target_vblank == drm_crtc_vblank_count(crtc),
+							msecs_to_jiffies((vblank + 1) * 17));
+					if (!ret) {
+						pr_err("OnscreenFingerprint failed to wait vblank timeout target_vblank=%d current_vblank=%d\n",
+								target_vblank, drm_crtc_vblank_count(crtc));
+					}
+				}
+			} else {
+				rc = dsi_panel_tx_cmd_set(dsi_display->panel, DSI_CMD_AOD_HBM_ON);
+			}
+
+			dsi_display_clk_ctrl(dsi_display->dsi_clk_handle,
+					DSI_CORE_CLK, DSI_CLK_OFF);
+
+			mutex_unlock(&dsi_display->panel->panel_lock);
+			if (rc) {
+				pr_err("failed to send DSI_CMD_HBM_ON cmds, rc=%d\n", rc);
+				return rc;
+			}
 		} else {
 			bool aod_hbm_off = true;
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
-			if(dsi_display->panel->oplus_priv.is_aod_ramless) {
-				if(atomic_read(&aod_onscreenfp_status)) {
-					aod_hbm_off = false;
-					pr_err("%s, skip AOD_HBM_OFF for ramless panel\n", __func__);
-				}
-			}
-#endif /* OPLUS_FEATURE_AOD_RAMLESS */
 
 			mutex_lock(&dsi_display->panel->panel_lock);
 
@@ -486,11 +471,9 @@ int sde_connector_update_hbm(struct drm_connector *connector)
 			/*add for solve hbm backlight issue*/
 			flag_writ = 3;
 
-			if(!dsi_display->panel->oplus_priv.prj_flag) {
-				oplus_skip_datadimming_sync = true;
-				oplus_panel_update_backlight_unlock(panel);
-				oplus_skip_datadimming_sync = false;
-			}
+			oplus_skip_datadimming_sync = true;
+			oplus_panel_update_backlight_unlock(panel);
+			oplus_skip_datadimming_sync = false;
 			fod_dimlayer_flag = fingerprint_mode;
 			vblank = panel->cur_mode->priv_info->fod_off_vblank;
 			target_vblank = drm_crtc_vblank_count(crtc) + vblank;
@@ -502,11 +485,6 @@ int sde_connector_update_hbm(struct drm_connector *connector)
 					OPLUS_DISPLAY_POWER_DOZE == get_oplus_display_power_status()) {
 					rc = dsi_panel_tx_cmd_set(dsi_display->panel, DSI_CMD_AOD_HBM_OFF);
 
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
-					if (dsi_display->panel->oplus_priv.is_aod_ramless) {
-						oplus_update_aod_light_mode_unlock(panel);
-					}
-#endif /* OPLUS_FEATURE_AOD_RAMLESS */
 					set_oplus_display_scene(OPLUS_DISPLAY_AOD_SCENE);
 				} else {
 					rc = dsi_panel_tx_cmd_set(dsi_display->panel, DSI_CMD_SET_NOLP);
@@ -534,12 +512,6 @@ int sde_connector_update_hbm(struct drm_connector *connector)
 			} else if (OPLUS_DISPLAY_AOD_SCENE == get_oplus_display_scene()) {
 				if(aod_hbm_off) {
 					rc = dsi_panel_tx_cmd_set(dsi_display->panel, DSI_CMD_AOD_HBM_OFF);
-
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
-					if (dsi_display->panel->oplus_priv.is_aod_ramless) {
-						oplus_update_aod_light_mode_unlock(panel);
-					}
-#endif /* OPLUS_FEATURE_AOD_RAMLESS */
 				}
 			} else {
 				rc = dsi_panel_tx_cmd_set(dsi_display->panel, DSI_CMD_HBM_OFF);
@@ -559,12 +531,6 @@ int sde_connector_update_hbm(struct drm_connector *connector)
 
 			dsi_display_clk_ctrl(dsi_display->dsi_clk_handle,
 					     DSI_CORE_CLK, DSI_CLK_OFF);
-
-			if(dsi_display->panel->oplus_priv.prj_flag) {
-				oplus_skip_datadimming_sync = true;
-				oplus_panel_update_backlight_unlock(panel);
-				oplus_skip_datadimming_sync = false;
-			}
 
 			mutex_unlock(&dsi_display->panel->panel_lock);
 			if (vblank) {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -32,17 +32,18 @@
 #include "sde_dbg.h"
 #include "dsi_parser.h"
 #include "dsi_phy.h"
-#include "oplus_display_panel_seed.h"
+#include "../oplus/oplus_display_panel_seed.h"
 #ifdef OPLUS_BUG_STABILITY
-#include "oplus_mm_kevent_fb.h"
 #include <linux/msm_drm_notify.h>
 #include <linux/notifier.h>
-#include "oplus_display_private_api.h"
-#include "oplus_ffl.h"
+#include "../oplus/oplus_display_private_api.h"
+#include "../oplus/oplus_ffl.h"
 #include <soc/oplus/boot_mode.h>
+
 extern int msm_drm_notifier_call_chain(unsigned long val, void *v);
 /* Don't panic if smmu fault*/
 extern int sde_kms_set_smmu_no_fatal_faults(struct drm_device *drm);
+
 #ifdef OPLUS_BUG_STABILITY
 __attribute__((weak)) void sec_refresh_switch(int fps)
 {
@@ -259,7 +260,6 @@ int dsi_display_set_backlight(struct drm_connector *connector,
 
 	panel = dsi_display->panel;
 
-
 	mutex_lock(&panel->panel_lock);
 	if (!dsi_panel_initialized(panel)) {
 		rc = -EINVAL;
@@ -267,7 +267,7 @@ int dsi_display_set_backlight(struct drm_connector *connector,
 	}
 	if ((cmp_display_panel_name("SOFEF03F") ||                          //For OP7 models
 		cmp_display_panel_name("S6E3FC2") || cmp_display_panel_name("S6E3HC2") ) && panel->bl_config.bl_level==0 && bl_lvl !=0 ) {
-		pr_err("[%s]Setting seed mode for OP7 models: mode = %d",__func__, seed_mode);
+		pr_info("[%s]Setting seed mode for OP7 models: mode = %d",__func__, seed_mode);
 		mdelay(33);
 		rc = dsi_panel_seed_mode_unlock(panel, seed_mode);              //Update seed mode
 		if (rc) {
@@ -278,7 +278,7 @@ int dsi_display_set_backlight(struct drm_connector *connector,
 #ifdef OPLUS_BUG_STABILITY
 	if ((bl_lvl == 0 && panel->bl_config.bl_level != 0) ||
 	   (bl_lvl != 0 && panel->bl_config.bl_level == 0)) {
-		pr_err("backlight level changed %d -> %d\n",panel->bl_config.bl_level, bl_lvl);
+		pr_info("backlight level changed %d -> %d\n",panel->bl_config.bl_level, bl_lvl);
 		if(bl_lvl != 0 && panel->bl_config.bl_level == 0){
 			if(panel->is_hbm_enabled)
 			       power_change_update_backlight  = 1;
@@ -313,8 +313,6 @@ int dsi_display_set_backlight(struct drm_connector *connector,
 			       panel->name, rc);
 			goto error;
 		}
-
-		//oplus_start_ffl_thread();
 	}
 #endif /* OPLUS_BUG_STABILITY */
 	panel->bl_config.bl_level = bl_lvl;
@@ -336,14 +334,6 @@ int dsi_display_set_backlight(struct drm_connector *connector,
 		       dsi_display->name, rc);
 		goto error;
 	}
-#ifdef OPLUS_FEATURE_SAU
-	if(lcd_closebl_flag) {
-		pr_err("silence reboot we should set backlight to zero\n");
-		bl_temp = 0;
-	} else if (bl_lvl) {
-		lcd_closebl_flag_fp = 0;
-	}
-#endif /* OPLUS_FEATURE_SAU */
 
 	rc = dsi_panel_set_backlight(panel, (u32)bl_temp);
 	if (rc)
@@ -743,20 +733,6 @@ static bool dsi_display_validate_reg_read(struct dsi_panel *panel)
 			return true;
 		group += len;
 	}
-
-#ifdef OPLUS_BUG_STABILITY
-	{
-		unsigned char payload[150] = "";
-		int cnt = 0;
-
-		cnt += scnprintf(payload, sizeof(payload), "NULL$$EventID@@%d$$ESD Error is@@",OPLUS_MM_DIRVER_FB_EVENT_ID_ESD);
-		for (i = 0; i < len; ++i) {
-			cnt += scnprintf(payload + cnt, sizeof(payload) - cnt, "[%02x] ", config->return_buf[i]);
-		}
-		DRM_ERROR("ESD check failed: %s\n", payload);
-		upload_mm_kevent_fb_data(OPLUS_MM_DIRVER_FB_EVENT_MODULE_DISPLAY,payload);
-	}
-#endif  /*OPLUS_BUG_STABILITY*/
 
 	return false;
 }
@@ -3940,7 +3916,7 @@ static int dsi_display_res_init(struct dsi_display *display)
 	}
 	if (strcmp(display->panel->name, "samsung dsc cmd mode oneplus dsi panel") == 0) {
 		INIT_DELAYED_WORK(&display->panel->gamma_read_work, dsi_display_gamma_read_work);
-		pr_err("INIT_DELAYED_WORK: dsi_display_gamma_read_work\n");
+		pr_info("INIT_DELAYED_WORK: dsi_display_gamma_read_work\n");
 	}
 
 	return 0;
@@ -4209,21 +4185,18 @@ static void _dsi_display_calc_pipe_delay(struct dsi_display *display,
 	struct dsi_ctrl *dsi_ctrl;
 	struct dsi_phy_cfg *cfg;
 	int phy_ver;
-#ifdef OPLUS_BUG_STABILITY
-	u32 cust_pll_delay = display->panel->oplus_priv.pll_delay;
-#endif /* OPLUS_BUG_STABILITY */
 
 	m_ctrl = &display->ctrl[display->clk_master_idx];
 	dsi_ctrl = m_ctrl->ctrl;
 
 	cfg = &(m_ctrl->phy->cfg);
 
-	esc_clk_rate_hz = dsi_ctrl->clk_freq.esc_clk_rate * 1000;
-	pclk_to_esc_ratio = ((dsi_ctrl->clk_freq.pix_clk_rate * 1000) /
+	esc_clk_rate_hz = dsi_ctrl->clk_freq.esc_clk_rate;
+	pclk_to_esc_ratio = ((dsi_ctrl->clk_freq.pix_clk_rate) /
 			     esc_clk_rate_hz);
-	byte_to_esc_ratio = ((dsi_ctrl->clk_freq.byte_clk_rate * 1000) /
+	byte_to_esc_ratio = ((dsi_ctrl->clk_freq.byte_clk_rate) /
 			     esc_clk_rate_hz);
-	hr_bit_to_esc_ratio = ((dsi_ctrl->clk_freq.byte_clk_rate * 4 * 1000) /
+	hr_bit_to_esc_ratio = ((dsi_ctrl->clk_freq.byte_clk_rate * 4) /
 					esc_clk_rate_hz);
 
 	hsync_period = DSI_H_TOTAL_DSC(&mode->timing);
@@ -4249,30 +4222,17 @@ static void _dsi_display_calc_pipe_delay(struct dsi_display *display,
 			  ((cfg->timing.lane_v3[4] >> 1) + 1)) /
 			 hr_bit_to_esc_ratio);
 
-	if (display->panel->oplus_priv.pll_delay) {
-		/*
-		*100us pll delay recommended for phy ver 2.0 and 3.0
-		*25us pll delay recommended for phy ver 4.0
-		*/
-		phy_ver = dsi_phy_get_version(m_ctrl->phy);
-		if (phy_ver <= DSI_PHY_VERSION_3_0) {
-			#ifdef OPLUS_BUG_STABILITY
-			delay->pll_delay = cust_pll_delay ? cust_pll_delay : 100;
-			#else
-			delay->pll_delay = 100;
-			#endif /* OPLUS_BUG_STABILITY */
-		}
-		else
-			delay->pll_delay = 25;
-		delay->pll_delay = (delay->pll_delay * esc_clk_rate_hz) / 1000000;
-	}
+	/*
+	 *100us pll delay recommended for phy ver 2.0 and 3.0
+	 *25us pll delay recommended for phy ver 4.0
+	 */
+	phy_ver = dsi_phy_get_version(m_ctrl->phy);
+	if (phy_ver <= DSI_PHY_VERSION_3_0)
+		delay->pll_delay = 100;
 	else
-		/* 130 us pll delay recommended by h/w doc */
-		delay->pll_delay = ((130 * esc_clk_rate_hz) / 1000000) * 2;
+		delay->pll_delay = 25;
 
-#ifdef OPLUS_BUG_STABILITY
-	pr_debug("cust_pll_delay = %d, pll_delay = %d\n", cust_pll_delay, delay->pll_delay);
-#endif /* OPLUS_BUG_STABILITY */
+	delay->pll_delay = (delay->pll_delay * esc_clk_rate_hz) / 1000000;
 }
 
 static int _dsi_display_dyn_update_clks(struct dsi_display *display,
@@ -4859,6 +4819,7 @@ static int dsi_display_set_mode_sub(struct dsi_display *display,
 			oplus_display_dynamic_clk_update_osc_clk(clk_rate);
 	}
 #endif /* OPLUS_BUG_STABILITY */
+
 error:
 	return rc;
 }
@@ -5305,21 +5266,6 @@ static int dsi_display_bind(struct device *dev,
 	if (!display->disp_node)
 		return 0;
 
-#ifdef OPLUS_FEATURE_SAU
-	if(0 != oplus_set_display_vendor(display)) {
-		pr_err("maybe send a null point to oplus display manager 1\n");
-		if(0 != set_oplus_display_vendor(display->name)) {
-			pr_err("maybe send a null point to oplus display manager 2\n");
-		}
-	}
-
-	/* Add for SAU feature request */
-	if(is_silence_reboot()) {
-		lcd_closebl_flag = 1;
-		lcd_closebl_flag_fp = 1;
-	}
-#endif /* OPLUS_FEATURE_SAU */
-
 	/* defer bind if ext bridge driver is not loaded */
 	for (i = 0; i < display->panel->host_config.ext_bridge_num; i++) {
 		j = display->panel->host_config.ext_bridge_map[i];
@@ -5598,10 +5544,7 @@ static struct platform_driver dsi_display_driver = {
 static int dsi_display_init(struct dsi_display *display)
 {
 	int rc = 0;
-	struct platform_device *pdev = display->pdev;
-#ifdef OPLUS_BUG_STABILITY
-	unsigned char payload[150] = "";
-#endif /*OPLUS_BUG_STABILITY*/
+	 struct platform_device *pdev = display->pdev;
 
 	mutex_init(&display->display_lock);
 
@@ -5612,17 +5555,8 @@ static int dsi_display_init(struct dsi_display *display)
 	}
 
 	rc = component_add(&pdev->dev, &dsi_display_comp_ops);
-
-#ifndef OPLUS_BUG_STABILITY
 	if (rc)
 		pr_err("component add failed, rc=%d\n", rc);
-#else
-	if (rc) {
-		pr_err("component add failed, rc=%d\n", rc);
-		scnprintf(payload, sizeof(payload), "NULL$$EventID@@%d$$component add error panel match fault rc=%d",OPLUS_MM_DIRVER_FB_EVENT_ID_PANEL_MATCH_FAULT,rc);
-		upload_mm_kevent_fb_data(OPLUS_MM_DIRVER_FB_EVENT_MODULE_DISPLAY,payload);
-	}
-#endif /*OPLUS_BUG_STABILITY*/
 
 	pr_debug("component add success: %s\n", display->name);
 end:
@@ -5729,9 +5663,9 @@ int dsi_display_dev_probe(struct platform_device *pdev)
 
 #ifdef OPLUS_BUG_STABILITY
 	if (!strcmp(dsi_type, "primary"))
-			primary_display = display;
-		else
-			secondary_display = display;
+		primary_display = display;
+	else
+		secondary_display = display;
 #endif /* OPLUS_BUG_STABILITY */
 
 	rc = dsi_display_init(display);
@@ -6631,22 +6565,17 @@ int dsi_display_get_modes(struct dsi_display *display,
 					curr_refresh_rate);
 		}
 		end = array_idx;
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
-		if (!display->panel->oplus_priv.is_aod_ramless) {
-#endif /* OPLUS_FEATURE_AOD_RAMLESS */
-			/*
-			 * if POMS is enabled and boot up mode is video mode ,
-			 * skip bit clk rates update for command mode ,
-			 * else if dynamic clk switch is supported then update all
-			 * the bit clk rates .
-			 */
+		/*
+		 * if POMS is enabled and boot up mode is video mode,
+		 * skip bit clk rates update for command mode,
+		 * else if dynamic clk switch is supported then update all
+		 * the bit clk rates.
+		 */
 
-			if (is_cmd_mode &&
-				(display->panel->panel_mode == DSI_OP_VIDEO_MODE))
-				continue;
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
-		}
-#endif /* OPLUS_FEATURE_AOD_RAMLESS */
+		if (is_cmd_mode &&
+			(display->panel->panel_mode == DSI_OP_VIDEO_MODE))
+			continue;
+
 		_dsi_display_populate_bit_clks(display, start, end, &array_idx);
 	}
 
@@ -6788,7 +6717,6 @@ static inline bool dsi_display_mode_switch_dfps(struct dsi_display_mode *cur,
  *               is change in clk but vactive and hactive are same.
  * Return: error code.
  */
-
 u32 mode_fps = 0;
 EXPORT_SYMBOL(mode_fps);
 
@@ -6820,7 +6748,7 @@ int dsi_display_validate_mode_change(struct dsi_display *display,
 			dsi_panel_get_dfps_caps(display->panel, &dfps_caps);
 			#ifdef OPLUS_BUG_STABILITY
 			if (cur_mode->timing.refresh_rate != adj_mode->timing.refresh_rate) {
-				pr_err("dsi_cmd set fps: %d\n", adj_mode->timing.refresh_rate);
+				pr_debug("dsi_cmd set fps: %d\n", adj_mode->timing.refresh_rate);
 				mode_fps = adj_mode->timing.refresh_rate;
 			}
 			#endif /*OPLUS_BUG_STABILITY*/
@@ -6846,11 +6774,13 @@ int dsi_display_validate_mode_change(struct dsi_display *display,
 					goto error;
 				}
 
-				if (cur_mode->timing.refresh_rate != adj_mode->timing.refresh_rate) {
+				if (cur_mode->timing.refresh_rate !=
+						adj_mode->timing.refresh_rate) {
 					pr_err("fps change along with dyn clk not supported\n");
 					rc = -ENOTSUPP;
 					goto error;
 				}
+
 				adj_mode->dsi_mode_flags |=
 						DSI_MODE_FLAG_DYN_CLK;
 				SDE_EVT32(cur_mode->pixel_clk_khz,
@@ -7864,10 +7794,6 @@ error:
 	return rc;
 }
 
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
-extern ktime_t oplus_onscreenfp_pressed_time;
-extern u32 oplus_onscreenfp_vblank_count;
-#endif /* OPLUS_FEATURE_AOD_RAMLESS */
 int dsi_display_post_enable(struct dsi_display *display)
 {
 	int rc = 0;
@@ -7883,20 +7809,8 @@ int dsi_display_post_enable(struct dsi_display *display)
 		if (display->config.panel_mode == DSI_OP_CMD_MODE)
 			dsi_panel_mode_switch_to_cmd(display->panel);
 
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
-		if (display->config.panel_mode == DSI_OP_VIDEO_MODE) {
-			if (display->panel->oplus_priv.is_aod_ramless &&
-					display->drm_conn && display->drm_conn->state &&
-					display->drm_conn->state->crtc) {
-				oplus_onscreenfp_vblank_count = drm_crtc_vblank_count(display->drm_conn->state->crtc);
-				oplus_onscreenfp_pressed_time = ktime_get();
-			}
-			dsi_panel_mode_switch_to_vid(display->panel);
-		}
-#else
 		if (display->config.panel_mode == DSI_OP_VIDEO_MODE)
 			dsi_panel_mode_switch_to_vid(display->panel);
-#endif /* OPLUS_FEATURE_AOD_RAMLESS */
 	} else {
 		rc = dsi_panel_post_enable(display->panel);
 		if (rc)
@@ -7964,7 +7878,6 @@ int dsi_display_disable(struct dsi_display *display)
 	}
 
 	SDE_EVT32(SDE_EVTLOG_FUNC_ENTRY);
-
 	mutex_lock(&display->display_lock);
 
 	rc = dsi_display_wake_up(display);
@@ -8001,16 +7914,13 @@ int dsi_display_disable(struct dsi_display *display)
 			pr_err("[%s] failed to disable DSI panel, rc=%d\n",
 			       display->name, rc);
 
-		#ifdef OPLUS_FEATURE_SAU
 		set_oplus_display_scene(OPLUS_DISPLAY_NORMAL_SCENE);
 		msm_drm_notifier_call_chain(MSM_DRM_EVENT_BLANK,
 							&notifier_data);
-		#endif /* OPLUS_FEATURE_SAU */
 	}
 
 	mutex_unlock(&display->display_lock);
 	SDE_EVT32(SDE_EVTLOG_FUNC_EXIT);
-
 	return rc;
 }
 
@@ -8038,8 +7948,6 @@ int dsi_display_get_gamma_para(struct dsi_display *dsi_display, struct dsi_panel
 	int rc = 0;
 	int flags = 0;
 	char fb[13] = {0};
-	//char c8[135] = {0};
-	//char c9[180] = {0};
 	char b3[47] = {0};
 	char fb_temp[13] = {0};
 	char c8_temp[135] = {0};
@@ -8053,197 +7961,195 @@ int dsi_display_get_gamma_para(struct dsi_display *dsi_display, struct dsi_panel
 	struct dsi_display_mode *mode;
 	struct dsi_display_ctrl *m_ctrl;
 
-	pr_err("%s start\n", __func__);
-
 	m_ctrl = &dsi_display->ctrl[dsi_display->cmd_master_idx];
 	if (!panel || !m_ctrl)
-	return -EINVAL;
+		return -EINVAL;
 
 	rc = dsi_display_cmd_engine_enable(dsi_display);
 	if (rc) {
-	pr_err("cmd engine enable failed\n");
-	return -EINVAL;
+		pr_err("cmd engine enable failed\n");
+		return -EINVAL;
 	}
 
 	dsi_panel_acquire_panel_lock(panel);
 	mode = panel->cur_mode;
 
-/* Read 60hz gamma para */
+	/* Read 60hz gamma para */
 	memcpy(gamma_para_backup, gamma_para[0], 413);
 	do {
-	check_sum_60hz = 0;
-	if (j > 0) {
-		pr_err("Failed to read the 60hz gamma parameters %d!", j);
-		for (i = 0; i < 52; i++) {
-		if (i != 51) {
-			pr_err("[60hz][%d]0x%02X,[%d]0x%02X,[%d]0x%02X,[%d]0x%02X,[%d]0x%02X,[%d]0x%02X,[%d]0x%02X,[%d]0x%02X",
-			i*8, gamma_para[0][i*8], i*8+1, gamma_para[0][i*8+1], i*8+2, gamma_para[0][i*8+2], i*8+3, gamma_para[0][i*8+3], i*8+4, gamma_para[0][i*8+4],
-				i*8+5, gamma_para[0][i*8+5], i*8+6, gamma_para[0][i*8+6], i*8+7, gamma_para[0][i*8+7]);
+		check_sum_60hz = 0;
+		if (j > 0) {
+			pr_err("Failed to read the 60hz gamma parameters %d!", j);
+			for (i = 0; i < 52; i++) {
+				if (i != 51) {
+					pr_debug("[60hz][%d]0x%02X,[%d]0x%02X,[%d]0x%02X,[%d]0x%02X,[%d]0x%02X,[%d]0x%02X,[%d]0x%02X,[%d]0x%02X",
+					i*8, gamma_para[0][i*8], i*8+1, gamma_para[0][i*8+1], i*8+2, gamma_para[0][i*8+2], i*8+3, gamma_para[0][i*8+3], i*8+4, gamma_para[0][i*8+4],
+						i*8+5, gamma_para[0][i*8+5], i*8+6, gamma_para[0][i*8+6], i*8+7, gamma_para[0][i*8+7]);
+				}
+				else {
+					pr_debug("[60hz][%d]0x%02X,[%d]0x%02X,[%d]0x%02X,[%d]0x%02X,[%d]0x%02X",
+					i*8, gamma_para[0][i*8], i*8+1, gamma_para[0][i*8+1], i*8+2, gamma_para[0][i*8+2], i*8+3, gamma_para[0][i*8+3], i*8+4, gamma_para[0][i*8+4]);
+				}
+			}
+			mdelay(1000);
 		}
-		else {
-			pr_err("[60hz][%d]0x%02X,[%d]0x%02X,[%d]0x%02X,[%d]0x%02X,[%d]0x%02X",
-			i*8, gamma_para[0][i*8], i*8+1, gamma_para[0][i*8+1], i*8+2, gamma_para[0][i*8+2], i*8+3, gamma_para[0][i*8+3], i*8+4, gamma_para[0][i*8+4]);
-		}
-		}
-		mdelay(1000);
-	}
-	for(i = 0; i < 452; i++)
-	{
-		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_GAMMA_FLASH_PRE_READ_1);
-		if (rc) {
-		pr_err("Failed to send DSI_CMD_SET_GAMMA_FLASH_PRE_READ_1 command\n");
-		goto error;
-		}
+		for(i = 0; i < 452; i++)
+		{
+			rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_GAMMA_FLASH_PRE_READ_1);
+			if (rc) {
+				pr_err("Failed to send DSI_CMD_SET_GAMMA_FLASH_PRE_READ_1 command\n");
+				goto error;
+			}
 
-		rc = dsi_panel_gamma_read_address_setting(panel, i);
-		if (rc) {
-		pr_err("Failed to set gamma read address\n");
-		goto error;
-		}
+			rc = dsi_panel_gamma_read_address_setting(panel, i);
+			if (rc) {
+				pr_err("Failed to set gamma read address\n");
+				goto error;
+			}
 
-		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_GAMMA_FLASH_PRE_READ_2);
-		if (rc) {
-		pr_err("Failed to send DSI_CMD_SET_GAMMA_FLASH_PRE_READ_2 command\n");
-		goto error;
-		}
+			rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_GAMMA_FLASH_PRE_READ_2);
+			if (rc) {
+				pr_err("Failed to send DSI_CMD_SET_GAMMA_FLASH_PRE_READ_2 command\n");
+				goto error;
+			}
 
-		flags = 0;
-		cmds = mode->priv_info->cmd_sets[DSI_CMD_SET_GAMMA_FLASH_READ_FB].cmds;
-		if (cmds->last_command) {
-		cmds->msg.flags |= MIPI_DSI_MSG_LASTCOMMAND;
-		flags |= DSI_CTRL_CMD_LAST_COMMAND;
-		}
-		flags |= (DSI_CTRL_CMD_FETCH_MEMORY | DSI_CTRL_CMD_READ);
-		if (!m_ctrl->ctrl->vaddr)
-		goto error;
-		cmds->msg.rx_buf = fb_temp;
-		cmds->msg.rx_len = 13;
-		rc = dsi_ctrl_cmd_transfer(m_ctrl->ctrl, &cmds->msg, flags);
-		if (rc <= 0) {
-		pr_err("Failed to read DSI_CMD_SET_GAMMA_FLASH_READ_FB\n");
-		goto error;
-		}
-		memcpy(fb, cmds->msg.rx_buf, 13);
+			flags = 0;
+			cmds = mode->priv_info->cmd_sets[DSI_CMD_SET_GAMMA_FLASH_READ_FB].cmds;
+			if (cmds->last_command) {
+				cmds->msg.flags |= MIPI_DSI_MSG_LASTCOMMAND;
+				flags |= DSI_CTRL_CMD_LAST_COMMAND;
+			}
+			flags |= (DSI_CTRL_CMD_FETCH_MEMORY | DSI_CTRL_CMD_READ);
+			if (!m_ctrl->ctrl->vaddr)
+				goto error;
 
-		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_LEVEL2_KEY_DISABLE);
-		if (rc) {
-		pr_err("Failed to send DSI_CMD_SET_LEVEL2_KEY_DISABLE command\n");
-		goto error;
-		}
+			cmds->msg.rx_buf = fb_temp;
+			cmds->msg.rx_len = 13;
+			rc = dsi_ctrl_cmd_transfer(m_ctrl->ctrl, &cmds->msg, flags);
+			if (rc <= 0) {
+				pr_err("Failed to read DSI_CMD_SET_GAMMA_FLASH_READ_FB\n");
+				goto error;
+			}
+			memcpy(fb, cmds->msg.rx_buf, 13);
 
-		if (i < 135) {
-		gamma_para[0][i+18] = fb[12];
-		}
-		else if (i < 315) {
-		gamma_para[0][i+26] = fb[12];
-		}
-		else if (i < 360) {
-		gamma_para[0][i+43] = fb[12];
-		}
+			rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_LEVEL2_KEY_DISABLE);
+			if (rc) {
+				pr_err("Failed to send DSI_CMD_SET_LEVEL2_KEY_DISABLE command\n");
+				goto error;
+			}
 
-		gamma_para_60hz[i] = fb[12];
-		if (i < 449) {
-		check_sum_60hz = gamma_para_60hz[i] + check_sum_60hz;
+			if (i < 135) {
+				gamma_para[0][i+18] = fb[12];
+			}
+			else if (i < 315) {
+				gamma_para[0][i+26] = fb[12];
+			}
+			else if (i < 360) {
+				gamma_para[0][i+43] = fb[12];
+			}
+
+			gamma_para_60hz[i] = fb[12];
+			if (i < 449) {
+			check_sum_60hz = gamma_para_60hz[i] + check_sum_60hz;
+			}
+			j++;
 		}
-		j++;
-	}
 	}
 	while ((check_sum_60hz != (gamma_para_60hz[450] << 8) + gamma_para_60hz[451]) && (j < 10));
 
 	if (check_sum_60hz == (gamma_para_60hz[450] << 8) + gamma_para_60hz[451]) {
-	pr_err("Read 60hz gamma done\n");
+		pr_info("Read 60hz gamma done\n");
 	}
 	else {
-	pr_err("Failed to read 60hz gamma, use default 60hz gamma.\n");
-	memcpy(gamma_para[0], gamma_para_backup, 413);
-	gamma_read_flag = GAMMA_READ_ERROR;
+		pr_err("Failed to read 60hz gamma, use default 60hz gamma.\n");
+		memcpy(gamma_para[0], gamma_para_backup, 413);
+		gamma_read_flag = GAMMA_READ_ERROR;
 	}
 
-/* Read 90hz gamma para */
+	/* Read 90hz gamma para */
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_LEVEL2_KEY_ENABLE);
 	if (rc) {
-	pr_err("Failed to send DSI_CMD_SET_LEVEL2_KEY_ENABLE command\n");
-	goto error;
+		pr_err("Failed to send DSI_CMD_SET_LEVEL2_KEY_ENABLE command\n");
+		goto error;
 	}
 
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_GAMMA_OTP_READ_C8_SMRPS);
 	if (rc) {
-	pr_err("Failed to send DSI_CMD_SET_GAMMA_OTP_READ_C8_SMRPS command\n");
-	goto error;
+		pr_err("Failed to send DSI_CMD_SET_GAMMA_OTP_READ_C8_SMRPS command\n");
+		goto error;
 	}
 
 	flags = 0;
 	cmds = mode->priv_info->cmd_sets[DSI_CMD_SET_GAMMA_OTP_READ_C8].cmds;
 	if (cmds->last_command) {
-	cmds->msg.flags |= MIPI_DSI_MSG_LASTCOMMAND;
-	flags |= DSI_CTRL_CMD_LAST_COMMAND;
+		cmds->msg.flags |= MIPI_DSI_MSG_LASTCOMMAND;
+		flags |= DSI_CTRL_CMD_LAST_COMMAND;
 	}
 	flags |= (DSI_CTRL_CMD_FETCH_MEMORY | DSI_CTRL_CMD_READ);
 	cmds->msg.rx_buf = c8_temp;
 	cmds->msg.rx_len = 135;
 	rc = dsi_ctrl_cmd_transfer(m_ctrl->ctrl, &cmds->msg, flags);
 	if (rc <= 0) {
-	pr_err("Failed to read DSI_CMD_SET_GAMMA_OTP_READ_C8\n");
-	goto error;
+		pr_err("Failed to read DSI_CMD_SET_GAMMA_OTP_READ_C8\n");
+		goto error;
 	}
 	memcpy(&gamma_para[1][18], cmds->msg.rx_buf, 135);
 
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_GAMMA_OTP_READ_C9_SMRPS);
 	if (rc) {
-	pr_err("Failed to send DSI_CMD_SET_GAMMA_OTP_READ_C9_SMRPS command\n");
-	goto error;
+		pr_err("Failed to send DSI_CMD_SET_GAMMA_OTP_READ_C9_SMRPS command\n");
+		goto error;
 	}
 
 	flags = 0;
 	cmds = mode->priv_info->cmd_sets[DSI_CMD_SET_GAMMA_OTP_READ_C9].cmds;
 	if (cmds->last_command) {
-	cmds->msg.flags |= MIPI_DSI_MSG_LASTCOMMAND;
-	flags |= DSI_CTRL_CMD_LAST_COMMAND;
+		cmds->msg.flags |= MIPI_DSI_MSG_LASTCOMMAND;
+		flags |= DSI_CTRL_CMD_LAST_COMMAND;
 	}
 	flags |= (DSI_CTRL_CMD_FETCH_MEMORY | DSI_CTRL_CMD_READ);
 	cmds->msg.rx_buf = c9_temp;
 	cmds->msg.rx_len = 180;
 	rc = dsi_ctrl_cmd_transfer(m_ctrl->ctrl, &cmds->msg, flags);
 	if (rc <= 0) {
-	pr_err("Failed to read DSI_CMD_SET_GAMMA_OTP_READ_C9\n");
-	goto error;
+		pr_err("Failed to read DSI_CMD_SET_GAMMA_OTP_READ_C9\n");
+		goto error;
 	}
 	memcpy(&gamma_para[1][161], cmds->msg.rx_buf, 180);
 
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_GAMMA_OTP_READ_B3_SMRPS);
 	if (rc) {
-	pr_err("Failed to send DSI_CMD_SET_GAMMA_OTP_READ_C9_SMRPS command\n");
-	goto error;
+		pr_err("Failed to send DSI_CMD_SET_GAMMA_OTP_READ_C9_SMRPS command\n");
+		goto error;
 	}
 
 	flags = 0;
 	cmds = mode->priv_info->cmd_sets[DSI_CMD_SET_GAMMA_OTP_READ_B3].cmds;
 	if (cmds->last_command) {
-	cmds->msg.flags |= MIPI_DSI_MSG_LASTCOMMAND;
-	flags |= DSI_CTRL_CMD_LAST_COMMAND;
+		cmds->msg.flags |= MIPI_DSI_MSG_LASTCOMMAND;
+		flags |= DSI_CTRL_CMD_LAST_COMMAND;
 	}
 	flags |= (DSI_CTRL_CMD_FETCH_MEMORY | DSI_CTRL_CMD_READ);
 	cmds->msg.rx_buf = b3_temp;
 	cmds->msg.rx_len = 47;
 	rc = dsi_ctrl_cmd_transfer(m_ctrl->ctrl, &cmds->msg, flags);
 	if (rc <= 0) {
-	pr_err("Failed to read DSI_CMD_SET_GAMMA_OTP_READ_B3\n");
-	goto error;
+		pr_err("Failed to read DSI_CMD_SET_GAMMA_OTP_READ_B3\n");
+		goto error;
 	}
 	memcpy(b3, cmds->msg.rx_buf, 47);
 	memcpy(&gamma_para[1][358], &b3[2], 45);
 
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_LEVEL2_KEY_DISABLE);
 	if (rc) {
-	pr_err("Failed to send DSI_CMD_SET_GAMMA_OTP_READ_C9_SMRPS command\n");
-	goto error;
+		pr_err("Failed to send DSI_CMD_SET_GAMMA_OTP_READ_C9_SMRPS command\n");
+		goto error;
 	}
-	pr_err("Read 90hz gamma done\n");
+	pr_info("Read 90hz gamma done\n");
 
 error:
 	dsi_panel_release_panel_lock(panel);
 	dsi_display_cmd_engine_disable(dsi_display);
-	pr_err("%s end\n", __func__);
 	return rc;
 }
 
@@ -8252,7 +8158,6 @@ int dsi_display_gamma_read(struct dsi_display *dsi_display)
 	int rc = 0;
 	struct dsi_panel *panel = NULL;
 
-	pr_err("%s start\n", __func__);
 	if ((dsi_display == NULL) || (dsi_display->panel == NULL))
 		return -EINVAL;
 
@@ -8275,7 +8180,6 @@ int dsi_display_gamma_read(struct dsi_display *dsi_display)
 
 error:
 	mutex_unlock(&dsi_display->display_lock);
-	pr_err("%s end\n", __func__);
 	return rc;
 }
 
@@ -8284,9 +8188,7 @@ void dsi_display_gamma_read_work(struct work_struct *work)
 	struct dsi_display *dsi_display;
 
 	dsi_display = get_main_display();
-
 	dsi_display_gamma_read(dsi_display);
-
 	dsi_panel_parse_gamma_cmd_sets();
 }
 

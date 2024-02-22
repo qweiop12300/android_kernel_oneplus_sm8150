@@ -716,7 +716,7 @@ static int stm8s_parse_fw_from_dt(struct oplus_vooc_chip *chip)
 	return 0;
 }
 
-static stm8s_parse_fw_from_array(struct oplus_vooc_chip *chip)
+static int stm8s_parse_fw_from_array(struct oplus_vooc_chip *chip)
 {
 	if (chip->batt_type_4400mv) {
 		chip->firmware_data = Stm8s_firmware_data_4400mv;
@@ -803,11 +803,6 @@ static stm8s_parse_fw_from_array(struct oplus_vooc_chip *chip)
 		chip->firmware_data = Stm8s_fw_data_4400_vooc_ffc_15c_18041;
 		chip->fw_data_count = sizeof(Stm8s_fw_data_4400_vooc_ffc_15c_18041);
 		chip->fw_data_version = Stm8s_fw_data_4400_vooc_ffc_15c_18041[chip->fw_data_count - 4];
-		break;
-	case VOOC_FW_TYPE_STM8S_4450_VOOC_FFC_5V6A_19365:
-		chip->firmware_data = Stm8s_fw_data_4450_VOOC_FFC_5V6A_19365;
-		chip->fw_data_count = sizeof(Stm8s_fw_data_4450_VOOC_FFC_5V6A_19365);
-		chip->fw_data_version = Stm8s_fw_data_4450_VOOC_FFC_5V6A_19365[chip->fw_data_count - 4];
 		break;
 	case VOOC_FW_TYPE_STM8S_4450_FFC_SHORT_RESET_WINDOW:
 		chip->firmware_data = Stm8s_fw_data_4450_ffc_ShortResetWindow;

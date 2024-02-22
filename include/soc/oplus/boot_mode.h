@@ -35,10 +35,3 @@ extern bool qpnp_is_charger_reboot(void);
 #endif /*VENDOR_EDIT*/
 
 #endif  /*_OPLUS_BOOT_H*/
-
-#ifdef VENDOR_EDIT
-#ifdef PHOENIX_PROJECT
-extern bool op_is_monitorable_boot(void);
-#endif
-#endif
-

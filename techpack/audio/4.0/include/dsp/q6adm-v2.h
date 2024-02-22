@@ -35,9 +35,6 @@ enum {
 	ADM_SRS_TRUMEDIA,
 	ADM_RTAC_AUDVOL_CAL,
 	ADM_LSM_AUDPROC_PERSISTENT_CAL,
-#ifdef OPLUS_ARCH_EXTENDS
-	ADM_AUDPROC_PERSISTENT_CAL,
-#endif /* OPLUS_ARCH_EXTENDS */
 	ADM_MAX_CAL_TYPES
 };
 
@@ -177,10 +174,6 @@ int adm_get_pp_topo_module_list_v2(int port_id, int copp_idx,
 				   int32_t *returned_params);
 
 int adm_set_volume(int port_id, int copp_idx, int volume);
-
-#ifdef OPLUS_FEATURE_KTV
-int adm_set_reverb_param(int port_id, int copp_idx, int32_t* params);
-#endif /* OPLUS_FEATURE_KTV */
 
 int adm_set_softvolume(int port_id, int copp_idx,
 		       struct audproc_softvolume_params *softvol_param);

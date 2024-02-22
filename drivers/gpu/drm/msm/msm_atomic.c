@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  * Copyright (C) 2014 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
  *
@@ -73,7 +73,6 @@ EXPORT_SYMBOL(msm_drm_unregister_client);
  * @v: notifier data, inculde display id and display blank
  *     event(unblank or power down).
  */
-
 #ifndef OPLUS_BUG_STABILITY
 static int msm_drm_notifier_call_chain(unsigned long val, void *v)
 {
@@ -274,8 +273,8 @@ msm_disable_outputs(struct drm_device *dev, struct drm_atomic_state *old_state)
 			notifier_data.data = &blank;
 			notifier_data.id = crtc_idx;
 			#ifndef OPLUS_BUG_STABILITY
-				msm_drm_notifier_call_chain(MSM_DRM_EARLY_EVENT_BLANK,
-			     &notifier_data);
+			msm_drm_notifier_call_chain(MSM_DRM_EARLY_EVENT_BLANK,
+						     &notifier_data);
 			#endif /* OPLUS_BUG_STABILITY */
 		}
 		/*
@@ -518,7 +517,7 @@ static void msm_atomic_helper_commit_modeset_enables(struct drm_device *dev,
 			DRM_DEBUG_ATOMIC("Notify early unblank\n");
 			#ifndef OPLUS_BUG_STABILITY
 			msm_drm_notifier_call_chain(MSM_DRM_EARLY_EVENT_BLANK,
-			     &notifier_data);
+					    &notifier_data);
 			#endif /* OPLUS_BUG_STABILITY */
 		}
 		/*
@@ -575,7 +574,7 @@ static void msm_atomic_helper_commit_modeset_enables(struct drm_device *dev,
 			DRM_DEBUG_ATOMIC("Notify unblank\n");
 			#ifndef OPLUS_BUG_STABILITY
 			msm_drm_notifier_call_chain(MSM_DRM_EVENT_BLANK,
-						&notifier_data);
+					    &notifier_data);
 			#endif /* OPLUS_BUG_STABILITY */
 		}
 	}

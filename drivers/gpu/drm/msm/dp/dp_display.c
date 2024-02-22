@@ -21,12 +21,9 @@
 #include <linux/component.h>
 #include <linux/of_irq.h>
 #include <linux/extcon.h>
-#ifndef OPLUS_FEATURE_DP_MAX20328
 #include <linux/soc/qcom/fsa4480-i2c.h>
-#else /* OPLUS_FEATURE_DP_MAX20328 */
-#include <linux/soc/qcom/max20328.h>
-#endif /* OPLUS_FEATURE_DP_MAX20328 */
 
+#include <drm/drm_client.h>
 #include "sde_connector.h"
 
 #include "msm_drv.h"
@@ -108,11 +105,7 @@ struct dp_display_private {
 
 	struct workqueue_struct *wq;
 	struct delayed_work hdcp_cb_work;
-	#ifdef OPLUS_FEATURE_DP_MAX20328
-	struct delayed_work connect_work;
-	#else /* OPLUS_FEATURE_DP_MAX20328 */
 	struct work_struct connect_work;
-	#endif /* OPLUS_FEATURE_DP_MAX20328 */
 	struct work_struct attention_work;
 	struct mutex session_lock;
 	bool suspended;
@@ -134,9 +127,17 @@ static const struct of_device_id dp_dt_match[] = {
 	{}
 };
 
+static void dp_display_update_hdcp_info(struct dp_display_private *dp);
+
 static inline bool dp_display_is_hdcp_enabled(struct dp_display_private *dp)
 {
 	return dp->link->hdcp_status.hdcp_version && dp->hdcp.ops;
+}
+
+static bool is_drm_bootsplash_enabled(struct device *dev)
+{
+	return of_property_read_bool(dev->of_node,
+		"qcom,sde-drm-fb-splash-logo-enabled");
 }
 
 static irqreturn_t dp_display_irq(int irq, void *dev_id)
@@ -639,6 +640,7 @@ static int dp_display_send_hpd_notification(struct dp_display_private *dp)
 {
 	int ret = 0;
 	bool hpd = dp->is_connected;
+	static int bootsplash_count;
 
 	dp->aux->state |= DP_STATE_NOTIFICATION_SENT;
 
@@ -646,6 +648,14 @@ static int dp_display_send_hpd_notification(struct dp_display_private *dp)
 		dp->dp_display.is_sst_connected = hpd;
 	else
 		dp->dp_display.is_sst_connected = false;
+
+	if (!dp->dp_display.is_bootsplash_en
+		&& is_drm_bootsplash_enabled(dp->dp_display.drm_dev->dev)
+		&& !bootsplash_count) {
+		dp->dp_display.is_bootsplash_en = true;
+		bootsplash_count++;
+		drm_client_dev_register(dp->dp_display.drm_dev);
+	}
 
 	reinit_completion(&dp->notification_comp);
 	dp_display_send_hpd_event(dp);
@@ -943,11 +953,7 @@ static int dp_display_usbpd_configure_cb(struct device *dev)
 
 	/* check for hpd high */
 	if (dp->hpd->hpd_high)
-	#ifdef OPLUS_FEATURE_DP_MAX20328
-		queue_delayed_work(dp->wq, &dp->connect_work, 0);
-	#else /* OPLUS_FEATURE_DP_MAX20328 */
 		queue_work(dp->wq, &dp->connect_work);
-	#endif /* OPLUS_FEATURE_DP_MAX20328 */
 	else
 		dp->process_hpd_connect = true;
 	mutex_unlock(&dp->session_lock);
@@ -1044,11 +1050,7 @@ static void dp_display_disconnect_sync(struct dp_display_private *dp)
 	dp->aux->abort(dp->aux, false);
 
 	/* wait for idle state */
-	#ifdef OPLUS_FEATURE_DP_MAX20328
-	cancel_delayed_work(&dp->connect_work);
-	#else /* OPLUS_FEATURE_DP_MAX20328 */
 	cancel_work(&dp->connect_work);
-	#endif /* OPLUS_FEATURE_DP_MAX20328 */
 	cancel_work(&dp->attention_work);
 	flush_workqueue(dp->wq);
 
@@ -1140,11 +1142,7 @@ static void dp_display_attention_work(struct work_struct *work)
 			dp_display_handle_disconnect(dp);
 		} else {
 			if (!dp->mst.mst_active)
-	#ifdef OPLUS_FEATURE_DP_MAX20328
-				queue_delayed_work(dp->wq, &dp->connect_work, 0);
-	#else /* OPLUS_FEATURE_DP_MAX20328 */
 				queue_work(dp->wq, &dp->connect_work);
-	#endif /* OPLUS_FEATURE_DP_MAX20328 */
 		}
 
 		goto mst_attention;
@@ -1154,11 +1152,7 @@ static void dp_display_attention_work(struct work_struct *work)
 		dp_display_handle_disconnect(dp);
 
 		dp->panel->video_test = true;
-	#ifdef OPLUS_FEATURE_DP_MAX20328
-		queue_delayed_work(dp->wq, &dp->connect_work, 0);
-	#else /* OPLUS_FEATURE_DP_MAX20328 */
 		queue_work(dp->wq, &dp->connect_work);
-	#endif /* OPLUS_FEATURE_DP_MAX20328 */
 
 		goto mst_attention;
 	}
@@ -1216,31 +1210,18 @@ static int dp_display_usbpd_attention_cb(struct device *dev)
 			dp->debug->mst_hpd_sim)
 		queue_work(dp->wq, &dp->attention_work);
 	else if (dp->process_hpd_connect || !dp->is_connected)
-	#ifdef OPLUS_FEATURE_DP_MAX20328
-		queue_delayed_work(dp->wq, &dp->connect_work, 0);
-	#else /* OPLUS_FEATURE_DP_MAX20328 */
 		queue_work(dp->wq, &dp->connect_work);
-	#endif /* OPLUS_FEATURE_DP_MAX20328 */
 	else
 		pr_debug("ignored\n");
 
 	return 0;
 }
 
-#ifdef OPLUS_FEATURE_DP_MAX20328
-extern int oplus_display_audio_ready;
-#endif /* OPLUS_FEATURE_DP_MAX20328 */
 static void dp_display_connect_work(struct work_struct *work)
 {
 	int rc = 0;
-	#ifdef OPLUS_FEATURE_DP_MAX20328
-	struct delayed_work *dw = to_delayed_work(work);
-	struct dp_display_private *dp = container_of(dw,
-			struct dp_display_private, connect_work);
-	#else /* OPLUS_FEATURE_DP_MAX20328 */
 	struct dp_display_private *dp = container_of(work,
 			struct dp_display_private, connect_work);
-	#endif /* OPLUS_FEATURE_DP_MAX20328 */
 
 	if (atomic_read(&dp->aborted)) {
 		pr_warn("HPD off requested\n");
@@ -1252,15 +1233,6 @@ static void dp_display_connect_work(struct work_struct *work)
 		return;
 	}
 
-	#ifdef OPLUS_FEATURE_DP_MAX20328
-	if (!oplus_display_audio_ready) {
-		if (ktime_to_ms(ktime_get()) < 80000) {
-			queue_delayed_work(dp->wq, &dp->connect_work, 5*HZ);
-			pr_warn("Wait for display and audio service ready\n");
-			return;
-		}
-	}
-	#endif /* OPLUS_FEATURE_DP_MAX20328 */
 	rc = dp_display_process_hpd_high(dp);
 
 	if (!rc && dp->panel->video_test)
@@ -1499,6 +1471,7 @@ error_ctrl:
 error_panel:
 	dp_link_put(dp->link);
 error_link:
+	dp->aux->drm_aux_deregister(dp->aux);
 	dp_aux_put(dp->aux);
 error_aux:
 	dp_power_put(dp->power);
@@ -1748,6 +1721,11 @@ static int dp_display_post_enable(struct dp_display *dp_display, void *panel)
 	dp_panel = panel;
 
 	mutex_lock(&dp->session_lock);
+
+	if (dp->dp_display.is_bootsplash_en) {
+		dp->dp_display.is_bootsplash_en = false;
+		goto end;
+	}
 
 	if (!dp->power_on) {
 		pr_debug("stream not setup, return\n");
@@ -2223,11 +2201,7 @@ static int dp_display_create_workqueue(struct dp_display_private *dp)
 	}
 
 	INIT_DELAYED_WORK(&dp->hdcp_cb_work, dp_display_hdcp_cb_work);
-	#ifdef OPLUS_FEATURE_DP_MAX20328
-	INIT_DELAYED_WORK(&dp->connect_work, dp_display_connect_work);
-	#else /* OPLUS_FEATURE_DP_MAX20328 */
 	INIT_WORK(&dp->connect_work, dp_display_connect_work);
-	#endif /* OPLUS_FEATURE_DP_MAX20328 */
 	INIT_WORK(&dp->attention_work, dp_display_attention_work);
 
 	return 0;
@@ -2261,9 +2235,6 @@ static int dp_display_fsa4480_callback(struct notifier_block *self,
 	return 0;
 }
 
-#ifdef OPLUS_FEATURE_DP_MAX20328
-static int dp_retry_times = 10;
-#endif /* OPLUS_FEATURE_DP_MAX20328 */
 static int dp_display_init_aux_switch(struct dp_display_private *dp)
 {
 	int rc = 0;
@@ -2283,7 +2254,6 @@ static int dp_display_init_aux_switch(struct dp_display_private *dp)
 		goto end;
 	}
 
-#ifndef OPLUS_FEATURE_DP_MAX20328
 	nb.notifier_call = dp_display_fsa4480_callback;
 	nb.priority = 0;
 
@@ -2294,34 +2264,6 @@ static int dp_display_init_aux_switch(struct dp_display_private *dp)
 	}
 
 	fsa4480_unreg_notifier(&nb, dp->aux_switch_node);
-#else /* OPLUS_FEATURE_DP_MAX20328 */
-	if (!of_device_is_compatible(dp->aux_switch_node, "max20328")) {
-		pr_err("Unsupport aux switch device node %s\n", dp->aux_switch_node->full_name);
-		dp->aux_switch_node = NULL;
-		goto end;
-	}
-	if (!of_device_is_available(dp->aux_switch_node)) {
-		pr_err("dp aux switch device not available\n");
-		dp->aux_switch_node = NULL;
-		goto end;
-	}
-	nb.notifier_call = dp_display_fsa4480_callback;
-	nb.priority = 0;
-
-	rc = max20328_reg_notifier(&nb, dp->aux_switch_node);
-	if (rc) {
-		pr_err("failed to register notifier (%d)\n", rc);
-		if (dp_retry_times > 0) {
-			dp_retry_times--;
-		} else {
-			rc = 0;
-			dp->aux_switch_node = NULL;
-		}
-		goto end;
-	}
-	max20328_unreg_notifier(&nb, dp->aux_switch_node);
-#endif /* OPLUS_FEATURE_DP_MAX20328 */
-
 end:
 	return rc;
 }

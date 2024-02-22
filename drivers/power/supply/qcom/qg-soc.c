@@ -202,6 +202,7 @@ static int qg_process_tcss_soc(struct qpnp_qg *chip, int sys_soc)
 		soc_ibat = QG_MAX_SOC;
 #endif
 	soc_ibat = CAP(QG_MIN_SOC, QG_MAX_SOC, soc_ibat);
+
 #ifndef OPLUS_FEATURE_CHG_BASIC
 	wt_ibat = qg_linear_interpolate(1, chip->soc_tcss_entry,
 					10000, 10000, soc_ibat);
@@ -289,6 +290,7 @@ int qg_adjust_sys_soc(struct qpnp_qg *chip)
 
 	/* TCSS */
 	chip->sys_soc = qg_process_tcss_soc(chip, chip->sys_soc);
+
 #ifdef OPLUS_FEATURE_CHG_BASIC
 	if (chip->sys_soc <= 50) { /* 0.5% */
 		/* Hold SOC to 1% of VBAT has not dropped below cutoff */
@@ -583,9 +585,9 @@ int qg_scale_soc(struct qpnp_qg *chip, bool force_soc)
 		scale_soc_stop(chip);
 		goto done;
 	}
-#ifdef OPLUS_FEATURE_CHG_BASIC
+
 	update_msoc(chip);
-#endif
+
 	if (is_scaling_required(chip)) {
 		get_next_update_time(chip);
 		alarm_start_relative(&chip->alarm_timer,

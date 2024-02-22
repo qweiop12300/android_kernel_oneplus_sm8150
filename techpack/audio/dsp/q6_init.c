@@ -34,7 +34,6 @@ static int __init audio_q6_init(void)
 	msm_mdf_init();
 #ifdef OPLUS_FEATURE_MM_ULTRASOUND
 	elliptic_driver_init();
-	//#end add
 #endif
 	voice_mhi_init();
 	return 0;
@@ -58,7 +57,6 @@ static void __exit audio_q6_exit(void)
 	adsp_err_exit();
 #ifdef OPLUS_FEATURE_MM_ULTRASOUND
 	elliptic_driver_exit();
-	//#end add
 #endif
 	voice_mhi_exit();
 }

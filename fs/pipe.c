@@ -30,6 +30,21 @@
 #include "internal.h"
 
 /*
+ * New pipe buffers will be restricted to this size while the user is exceeding
+ * their pipe buffer quota. The general pipe use case needs at least two
+ * buffers: one for data yet to be read, and one for new data. If this is less
+ * than two, then a write to a non-empty pipe may block even if the pipe is not
+ * full. This can occur with GNU make jobserver or similar uses of pipes as
+ * semaphores: multiple processes may be waiting to write tokens back to the
+ * pipe before reading tokens: https://lore.kernel.org/lkml/1628086770.5rn8p04n6j.none@localhost/.
+ *
+ * Users can reduce their pipe buffers with F_SETPIPE_SZ below this at their
+ * own risk, namely: pipe writes to non-full pipes may block until the pipe is
+ * emptied.
+ */
+#define PIPE_MIN_DEF_BUFFERS 2
+
+/*
  * The max size that a non-root user is allowed to grow the pipe. Can
  * be set by root in /proc/sys/fs/pipe-max-size
  */
@@ -654,8 +669,8 @@ struct pipe_inode_info *alloc_pipe_info(void)
 	user_bufs = account_pipe_buffers(user, 0, pipe_bufs);
 
 	if (too_many_pipe_buffers_soft(user_bufs) && is_unprivileged_user()) {
-		user_bufs = account_pipe_buffers(user, pipe_bufs, 1);
-		pipe_bufs = 1;
+		user_bufs = account_pipe_buffers(user, pipe_bufs, PIPE_MIN_DEF_BUFFERS);
+		pipe_bufs = PIPE_MIN_DEF_BUFFERS;
 	}
 
 	if (too_many_pipe_buffers_hard(user_bufs) && is_unprivileged_user())
@@ -1052,56 +1067,6 @@ static inline unsigned int round_pipe_size(unsigned int size)
 
 	return roundup_pow_of_two(nr_pages) << PAGE_SHIFT;
 }
-#ifdef OPLUS_BUG_STABILITY
-static inline bool is_zygote_process(struct task_struct *t)
-{
-	const struct cred *tcred = __task_cred(t);
-
-	struct task_struct * first_child = NULL;
-	if(t->children.next && t->children.next != (struct list_head*)&t->children.next)
-		first_child = container_of(t->children.next, struct task_struct, sibling);
-	if(!strcmp(t->comm, "main") && (tcred->uid.val == 0) && (t->parent != 0 && !strcmp(t->parent->comm,"init"))  )
-		return true;
-	else
-		return false;
-	return false;
-}
-#define SYSTEM_APP_UID 1000
-static inline bool is_system_uid(struct task_struct *t)
-{
-	int cur_uid;
-	cur_uid = task_uid(t).val;
-	if (cur_uid ==  SYSTEM_APP_UID)
-		return true;
-
-	return false;
-}
-
-static inline bool is_system_process(struct task_struct *t)
-{
-        pr_err("in system_process, t->comm is %s,grouplead command is %s",t->comm,t->group_leader->comm);
-	if (is_system_uid(t)) {
-		if (t->group_leader  && (!strncmp(t->group_leader->comm,"system_server", 13) ||
-			!strncmp(t->group_leader->comm, "surfaceflinger", 14) ||
-			!strncmp(t->group_leader->comm, "Binder:", 7) ||
-			!strncmp(t->group_leader->comm, "sensor", 6) ||
-			!strncmp(t->group_leader->comm, "suspend", 7) ||
-			!strncmp(t->group_leader->comm, "composer", 8)))
-				return true;
-	}
-	return false;
-}
-
-static inline bool is_critial_process(struct task_struct *t)
-{
-	if( is_zygote_process(t) || is_system_process(t)) {
-                pr_err("in pipe set buffer size, critical svc, we are not gonna return EPERM");
-		return true;
-        }
-
-	return false;
-}
-#endif /* OPLUS_BUG_STABILITY */
 
 /*
  * Allocate a new array of pipe buffers and copy the info over. Returns the
@@ -1129,27 +1094,16 @@ static long pipe_set_size(struct pipe_inode_info *pipe, unsigned long arg)
 	 * Decreasing the pipe capacity is always permitted, even
 	 * if the user is currently over a limit.
 	 */
-        #ifndef OPLUS_BUG_STABILITY
 	if (nr_pages > pipe->buffers &&
 			size > pipe_max_size && !capable(CAP_SYS_RESOURCE))
-        #else /* OPLUS_BUG_STABILITY */
-        if (nr_pages > pipe->buffers &&
-			size > pipe_max_size && !capable(CAP_SYS_RESOURCE) && !is_critial_process(current))
-        #endif /* OPLUS_BUG_STABILITYT */
 		return -EPERM;
 
 	user_bufs = account_pipe_buffers(pipe->user, pipe->buffers, nr_pages);
-        #ifndef OPLUS_BUG_STABILITY
+
 	if (nr_pages > pipe->buffers &&
 			(too_many_pipe_buffers_hard(user_bufs) ||
 			 too_many_pipe_buffers_soft(user_bufs)) &&
 			is_unprivileged_user()) {
-        #else /* OPLUS_BUG_STABILITY */
-        if (nr_pages > pipe->buffers &&
-			(too_many_pipe_buffers_hard(user_bufs) ||
-			 too_many_pipe_buffers_soft(user_bufs)) &&
-			is_unprivileged_user() && !is_critial_process(current)) {
-        #endif /* OPLUS_BUG_STABILITY */
 		ret = -EPERM;
 		goto out_revert_acct;
 	}

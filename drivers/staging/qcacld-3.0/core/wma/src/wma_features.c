@@ -571,7 +571,7 @@ enum wlan_phymode wma_chan_phy_mode(uint32_t freq, enum phy_ch_width chan_width,
 	}
 
 	if (chan_width >= CH_WIDTH_INVALID) {
-		wma_err_rl("%s : Invalid channel width", __func__);
+		wma_err_rl("%s : Invalid channel width %d", __func__, chan_width);
 		return WLAN_PHYMODE_AUTO;
 	}
 
@@ -2057,21 +2057,11 @@ static void wma_log_pkt_ipv4(uint8_t *data, uint32_t length)
 
 	pkt_len = *(uint16_t *)(data + IPV4_PKT_LEN_OFFSET);
 	ip_addr = (char *)(data + IPV4_SRC_ADDR_OFFSET);
-#ifndef OPLUS_BUG_DEBUG
 	WMA_LOGD("src addr %d:%d:%d:%d", ip_addr[0], ip_addr[1],
 		 ip_addr[2], ip_addr[3]);
-#else
-	WMA_LOGE("src addr %d:%d:%d:%d", ip_addr[0], ip_addr[1],
-		 ip_addr[2], ip_addr[3]);
-#endif /* OPLUS_BUG_DEBUG */
 	ip_addr = (char *)(data + IPV4_DST_ADDR_OFFSET);
-#ifndef OPLUS_BUG_DEBUG
 	WMA_LOGD("dst addr %d:%d:%d:%d", ip_addr[0], ip_addr[1],
 		 ip_addr[2], ip_addr[3]);
-#else
-	WMA_LOGE("dst addr %d:%d:%d:%d", ip_addr[0], ip_addr[1],
-		 ip_addr[2], ip_addr[3]);
-#endif /* OPLUS_BUG_DEBUG */
 	src_port = *(uint16_t *)(data + IPV4_SRC_PORT_OFFSET);
 	dst_port = *(uint16_t *)(data + IPV4_DST_PORT_OFFSET);
 	WMA_LOGI("Pkt_len: %u, src_port: %u, dst_port: %u",
@@ -2090,37 +2080,19 @@ static void wma_log_pkt_ipv6(uint8_t *data, uint32_t length)
 
 	pkt_len = *(uint16_t *)(data + IPV6_PKT_LEN_OFFSET);
 	ip_addr = (char *)(data + IPV6_SRC_ADDR_OFFSET);
-#ifndef OPLUS_BUG_DEBUG
 	WMA_LOGD("src addr "IPV6_ADDR_STR, ip_addr[0],
 		 ip_addr[1], ip_addr[2], ip_addr[3], ip_addr[4],
 		 ip_addr[5], ip_addr[6], ip_addr[7], ip_addr[8],
 		 ip_addr[9], ip_addr[10], ip_addr[11],
 		 ip_addr[12], ip_addr[13], ip_addr[14],
 		 ip_addr[15]);
-#else
-	WMA_LOGE("src addr "IPV6_ADDR_STR, ip_addr[0],
-		 ip_addr[1], ip_addr[2], ip_addr[3], ip_addr[4],
-		 ip_addr[5], ip_addr[6], ip_addr[7], ip_addr[8],
-		 ip_addr[9], ip_addr[10], ip_addr[11],
-		 ip_addr[12], ip_addr[13], ip_addr[14],
-		 ip_addr[15]);
-#endif /* OPLUS_BUG_DEBUG */
 	ip_addr = (char *)(data + IPV6_DST_ADDR_OFFSET);
-#ifndef OPLUS_BUG_DEBUG
 	WMA_LOGD("dst addr "IPV6_ADDR_STR, ip_addr[0],
 		 ip_addr[1], ip_addr[2], ip_addr[3], ip_addr[4],
 		 ip_addr[5], ip_addr[6], ip_addr[7], ip_addr[8],
 		 ip_addr[9], ip_addr[10], ip_addr[11],
 		 ip_addr[12], ip_addr[13], ip_addr[14],
 		 ip_addr[15]);
-#else
-	WMA_LOGE("dst addr "IPV6_ADDR_STR, ip_addr[0],
-		 ip_addr[1], ip_addr[2], ip_addr[3], ip_addr[4],
-		 ip_addr[5], ip_addr[6], ip_addr[7], ip_addr[8],
-		 ip_addr[9], ip_addr[10], ip_addr[11],
-		 ip_addr[12], ip_addr[13], ip_addr[14],
-		 ip_addr[15]);
-#endif /* OPLUS_BUG_DEBUG */
 	src_port = *(uint16_t *)(data + IPV6_SRC_PORT_OFFSET);
 	dst_port = *(uint16_t *)(data + IPV6_DST_PORT_OFFSET);
 	WMA_LOGI("Pkt_len: %u, src_port: %u, dst_port: %u",
@@ -2505,7 +2477,8 @@ static int wma_wake_event_packet(
 		 * dump event buffer which contains more info regarding
 		 * current page fault.
 		 */
-		WMA_LOGD("PAGE_FAULT occurs during suspend:");
+		wma_debug("PAGE_FAULT occurs during suspend: packet_len %u",
+			  packet_len);
 		qdf_trace_hex_dump(QDF_MODULE_ID_WMA, QDF_TRACE_LEVEL_DEBUG,
 				   packet, packet_len);
 		break;
@@ -4218,6 +4191,9 @@ QDF_STATUS wma_send_apf_enable_cmd(WMA_HANDLE handle, uint8_t vdev_id,
 		return QDF_STATUS_E_INVAL;
 	}
 
+	if (!wma_is_vdev_valid(vdev_id))
+		return QDF_STATUS_E_INVAL;
+
 	if (!WMI_SERVICE_IS_ENABLED(wma->wmi_service_bitmap,
 		WMI_SERVICE_BPF_OFFLOAD)) {
 		WMA_LOGE(FL("APF cababilities feature bit not enabled"));
@@ -4904,8 +4880,8 @@ int wma_unified_power_debug_stats_event_handler(void *handle,
 
 	param_buf = (wmi_pdev_chip_power_stats_event_fixed_param *)
 		param_tlvs->fixed_param;
-	if (!mac || !mac->sme.power_stats_resp_callback) {
-		WMA_LOGD("%s: NULL mac ptr or HDD callback is null", __func__);
+	if (!mac) {
+		wma_debug("NULL mac ptr");
 		return -EINVAL;
 	}
 
@@ -4957,8 +4933,10 @@ int wma_unified_power_debug_stats_event_handler(void *handle,
 	qdf_mem_copy(power_stats_results->debug_registers,
 			debug_registers, stats_registers_len);
 
-	mac->sme.power_stats_resp_callback(power_stats_results,
-			mac->sme.power_debug_stats_context);
+	if (mac->sme.sme_power_debug_stats_callback)
+		mac->sme.sme_power_debug_stats_callback(mac,
+							power_stats_results);
+
 	qdf_mem_free(power_stats_results);
 	return 0;
 }

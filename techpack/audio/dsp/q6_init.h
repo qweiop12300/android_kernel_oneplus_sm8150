@@ -32,7 +32,6 @@ void msm_mdf_exit(void);
 #else
 #ifdef OPLUS_FEATURE_MM_ULTRASOUND
 int elliptic_driver_init(void);
-//#end add
 #endif
 
 static inline int msm_mdf_init(void)
@@ -72,7 +71,6 @@ void adm_exit(void);
 void adsp_err_exit(void);
 #ifdef OPLUS_FEATURE_MM_ULTRASOUND
 int elliptic_driver_exit(void);
-//#end add
 #endif
 #ifdef CONFIG_VOICE_MHI
 int voice_mhi_init(void);

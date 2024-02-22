@@ -53,15 +53,6 @@
 #define display_for_each_ctrl(index, display) \
 	for (index = 0; (index < (display)->ctrl_count) &&\
 			(index < MAX_DSI_CTRLS_PER_DISPLAY); index++)
-#ifdef OPLUS_BUG_STABILITY
-#define DSI_WARN(fmt, ...)	DRM_WARN("[msm-dsi-warn]: "fmt, ##__VA_ARGS__)
-#define DSI_ERR(fmt, ...)	DRM_DEV_ERROR(NULL, "[msm-dsi-error]: " fmt, \
-								##__VA_ARGS__)
-#define DSI_INFO(fmt, ...)	DRM_DEV_INFO(NULL, "[msm-dsi-info]: "fmt, \
-								##__VA_ARGS__)
-#define DSI_DEBUG(fmt, ...)	DRM_DEV_DEBUG(NULL, "[msm-dsi-debug]: "fmt, \
-								##__VA_ARGS__)
-#endif /* OPLUS_BUG_STABILITY */
 /**
  * enum dsi_pixel_format - DSI pixel formats
  * @DSI_PIXEL_FORMAT_RGB565:
@@ -291,7 +282,7 @@ enum dsi_dyn_clk_feature_type {
  * @DSI_CMD_SET_POST_TIMING_SWITCH:        Post timing switch
  * @DSI_CMD_SET_QSYNC_ON                   Enable qsync mode
  * @DSI_CMD_SET_QSYNC_OFF                  Disable qsync mode
- #ifdef OPLUS_BUG_STABILITY
+#ifdef OPLUS_BUG_STABILITY
  * @DSI_CMD_POST_ON_BACKLIGHT:             Panel on cmd send for AOD and Fingerprint
  * @DSI_CMD_AOD_ON:                        Panel AOD on cmd
  * @DSI_CMD_AOD_OFF:                       Panel AOD off cmd
@@ -367,10 +358,6 @@ enum dsi_cmd_set_type {
 	DSI_CMD_HBM_EXIT_SWITCH,
 	DSI_CMD_HBM_EXIT1_SWITCH,
 	DSI_CMD_HBM_EXIT2_SWITCH,
-#ifdef OPLUS_FEATURE_AOD_RAMLESS
-	DSI_CMD_FAILSAFE_ON,
-	DSI_CMD_FAILSAFE_OFF,
-#endif /* OPLUS_FEATURE_AOD_RAMLESS */
 	DSI_CMD_HBM_BACKLIGHT_ON,
 	DSI_CMD_HBM_BACKLIGHT_OFF,
 #endif /* OPLUS_BUG_STABILITY */
@@ -639,7 +626,7 @@ struct dsi_cmd_engine_cfg {
  * @common_config:         Host configuration common to both Video and Cmd mode.
  * @video_engine:          Video engine configuration if panel is in video mode.
  * @cmd_engine:            Cmd engine configuration if panel is in cmd mode.
- * @esc_clk_rate_khz:      Esc clock frequency in Hz.
+ * @esc_clk_rate_hz:      Esc clock frequency in Hz.
  * @bit_clk_rate_hz:       Bit clock frequency in Hz.
  * @bit_clk_rate_hz_override: DSI bit clk rate override from dt/sysfs.
  * @video_timing:          Video timing information of a frame.
@@ -693,7 +680,7 @@ struct dsi_display_mode_priv_info {
 	struct msm_display_dsc_info dsc;
 	bool dsc_enabled;
 	struct msm_roi_caps roi_caps;
-	#ifdef OPLUS_BUG_STABILITY
+#ifdef OPLUS_BUG_STABILITY
 	int fod_th_brightness;
 	int fod_on_vblank;
 	int fod_off_vblank;
@@ -703,7 +690,7 @@ struct dsi_display_mode_priv_info {
 	int fod_off_vblank_above_th;
 	int fod_on_delay_above_th;
 	int fod_off_delay_above_th;
-	#endif /* OPLUS_BUG_STABILITY */
+#endif /* OPLUS_BUG_STABILITY */
 };
 
 /**
