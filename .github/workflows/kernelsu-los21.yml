@@ -19,6 +19,8 @@ jobs:
       CCACHE_NOHASHDIR: "true"
       CCACHE_MAXSIZE: "2G"
       CCACHE_HARDLINK: "true"
+      BRAND_SHOW_FLAG: "oneplus"
+      TARGET_PRODUCT: "msmnile"
       KERNEL_DEFCONFIG: "vendor/sm8150-perf_defconfig"
       KERNEL_CMDLINE: "ARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-androidkernel- CROSS_COMPILE_ARM32=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1 CONFIG_BUILD_ARM64_DT_OVERLAY=n O=out"
     steps:
@@ -62,7 +64,7 @@ jobs:
         NAME: msmnile
       with:
         arch: arm64
-        compiler: clang/14
+        compiler: clang/17
         defconfig: $KERNEL_DEFCONFIG
         image: Image
     - name: Build Kernel
