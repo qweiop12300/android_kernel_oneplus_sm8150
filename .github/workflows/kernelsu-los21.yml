@@ -38,6 +38,7 @@ jobs:
         sudo apt install clang-14 -y
         sudo apt install binutils make python3 libssl-dev build-essential bc  bison flex unzip libssl-dev ca-certificates xz-utils mkbootimg cpio device-tree-compiler git git-lfs -y
         git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 aarch64 --depth=1
+        git clone https://github.com/grm34/proton-clang -b ZenMaxBuilder clang --depth=1
         git clone https://github.com/snowwolf725/AnyKernel3 -b oneplus7 --depth=1
         rm -rf AnyKernel3/.git
     - name: Checkout
@@ -63,11 +64,9 @@ jobs:
        make $KERNEL_CMDLINE $KERNEL_DEFCONFIG
        make $KERNEL_CMDLINE -j$(nproc --all)
        cp out/arch/arm64/boot/Image ../AnyKernel3
-    - name: Upload Kernel-SU 10
-      uses: actions/upload-artifact@v4
-      with:
-        name: OP7-OOS10-kernel-SU-${{ steps.get_version.outputs.VERSION }}
-        path: "../AnyKernel3/*"
+    - name: Create AK3 zip for android 10
+      run: |
+       zip OP7-OOS10-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip AnyKernel3/*
     - name: Setup OOS 11
       run: |
        export KERNEL_CMDLINE="ARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-androidkernel- CROSS_COMPILE_ARM32=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1 O=out"
@@ -76,11 +75,9 @@ jobs:
        make $KERNEL_CMDLINE $KERNEL_DEFCONFIG
        make $KERNEL_CMDLINE -j$(nproc --all)
        cp out/arch/arm64/boot/Image ../AnyKernel3
-    - name: Upload Kernel-SU 11
-      uses: actions/upload-artifact@v4
-      with:
-        name: OP7-OOS11-kernel-SU-${{ steps.get_version.outputs.VERSION }}
-        path: "../AnyKernel3/*"
+    - name: Create AK3 zip for android 11
+      run: |
+       zip OP7-OOS11-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip AnyKernel3/*
     - name: Setup OOS 12
       run: |
        export KERNEL_DEFCONFIG="vendor/sm8150-perf_defconfig"
@@ -89,8 +86,23 @@ jobs:
        make $KERNEL_CMDLINE $KERNEL_DEFCONFIG
        make $KERNEL_CMDLINE -j$(nproc --all)
        cp out/arch/arm64/boot/Image ../AnyKernel3
-    - name: Upload Kernel-SU 12
+    - name: Create AK3 zip for android 12
+      run: |
+       zip OP7-OOS12-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip AnyKernel3/*
+    - name: Setup OOS 13
+      run: |
+       export KERNEL_DEFCONFIG="lineage_sm8150_defconfig vendor/debugfs.config"
+       export KERNEL_CMDLINE="ARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-androidkernel- CROSS_COMPILE_ARM32=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1 CONFIG_BUILD_ARM64_DT_OVERLAY=n O=out"
+       cd kernel
+       git checkout oneplus/LOS_SM8150_13.0
+       make $KERNEL_CMDLINE $KERNEL_DEFCONFIG
+       make $KERNEL_CMDLINE -j$(nproc --all)
+       cp out/arch/arm64/boot/Image ../AnyKernel3
+    - name: Create AK3 zip for android 13
+      run: |
+       zip OP7-LOS20-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip AnyKernel3/*
+    - name: Upload Kernel-SU 13
       uses: actions/upload-artifact@v4
       with:
-        name: OP7-OOS12-kernel-SU-${{ steps.get_version.outputs.VERSION }}
-        path: "../AnyKernel3/*"
+        name: OP7-LOS20-kernel-SU-${{ steps.get_version.outputs.VERSION }}
+        path: "AnyKernel3/*"
