@@ -73,6 +73,7 @@ jobs:
       run: |
        export KERNEL_CMDLINE="ARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-androidkernel- CROSS_COMPILE_ARM32=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1 O=out"
        cd kernel
+       git checkout oneplus/OOS_SM8150_11.0
        make $KERNEL_CMDLINE $KERNEL_DEFCONFIG
        make $KERNEL_CMDLINE -j$(nproc --all)
        cp out/arch/arm64/boot/Image ../AnyKernel3
@@ -81,4 +82,15 @@ jobs:
       with:
         name: OP7-OOS11-kernel-SU-${{ steps.get_version.outputs.VERSION }}
         path: "../AnyKernel3/*"
-       git checkout oneplus/OOS_SM8150_11.0
+    - name: Setup OOS 12
+      run: |
+       cd kernel
+       git checkout oneplus/OOS_SM8150_12.0
+       make $KERNEL_CMDLINE $KERNEL_DEFCONFIG
+       make $KERNEL_CMDLINE -j$(nproc --all)
+       cp out/arch/arm64/boot/Image ../AnyKernel3
+    - name: Upload Kernel-SU 12
+      uses: actions/upload-artifact@v4
+      with:
+        name: OP7-OOS12-kernel-SU-${{ steps.get_version.outputs.VERSION }}
+        path: "../AnyKernel3/*"
