@@ -176,7 +176,7 @@ jobs:
        cd ..
     - name: Create AK3 zip for android 14
       run: |
-       zip OP7-LOS20-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip AnyKernel3/*
+       zip OP7-LOS21-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip AnyKernel3/*
     - name: Upload Kernel-SU 14
       uses: actions/upload-artifact@v4
       with:
