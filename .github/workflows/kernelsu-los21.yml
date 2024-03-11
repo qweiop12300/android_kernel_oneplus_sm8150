@@ -124,7 +124,7 @@ jobs:
     - name: Checkout Android 13 kernel source
       run: |
         rm -rf kernel
-        git clone --recurse-submodules https://github.com/snowwolf725/android_kernel_oneplus_sm8150 -b oneplus/LOS_SM8150_20.0 --depth=1 kernel
+        git clone --recurse-submodules https://github.com/snowwolf725/android_kernel_oneplus_sm8150 -b oneplus/LOS_SM8150_13.0 --depth=1 kernel
         cd kernel/KernelSU
         git pull
         cd ../../
