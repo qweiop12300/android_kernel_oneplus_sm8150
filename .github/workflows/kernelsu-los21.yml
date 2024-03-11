@@ -64,6 +64,7 @@ jobs:
        make $KERNEL_CMDLINE $KERNEL_DEFCONFIG
        make $KERNEL_CMDLINE -j$(nproc --all)
        cp out/arch/arm64/boot/Image ../AnyKernel3
+       cd ..
     - name: Create AK3 zip for android 10
       run: |
        zip OP7-OOS10-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip AnyKernel3/*
@@ -75,6 +76,7 @@ jobs:
        make $KERNEL_CMDLINE $KERNEL_DEFCONFIG
        make $KERNEL_CMDLINE -j$(nproc --all)
        cp out/arch/arm64/boot/Image ../AnyKernel3
+       cd ..
     - name: Create AK3 zip for android 11
       run: |
        zip OP7-OOS11-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip AnyKernel3/*
@@ -86,6 +88,7 @@ jobs:
        make $KERNEL_CMDLINE $KERNEL_DEFCONFIG
        make $KERNEL_CMDLINE -j$(nproc --all)
        cp out/arch/arm64/boot/Image ../AnyKernel3
+       cd ..
     - name: Create AK3 zip for android 12
       run: |
        zip OP7-OOS12-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip AnyKernel3/*
@@ -98,6 +101,7 @@ jobs:
        make $KERNEL_CMDLINE $KERNEL_DEFCONFIG
        make $KERNEL_CMDLINE -j$(nproc --all)
        cp out/arch/arm64/boot/Image ../AnyKernel3
+       cd ..
     - name: Create AK3 zip for android 13
       run: |
        zip OP7-LOS20-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip AnyKernel3/*
@@ -106,3 +110,18 @@ jobs:
       with:
         name: OP7-LOS20-kernel-SU-${{ steps.get_version.outputs.VERSION }}
         path: "AnyKernel3/*"
+    - name: Upload to Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          OP7-OOS10-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip
+          OP7-OOS11-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip
+          OP7-OOS12-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip
+          OP7-LOS20-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip
+        name: OnePlus7_kernelsu-${{ github.run_id }}
+        tag_name: ${{ github.run_id }}
+        body: |
+          Device: Oneplus 7
+          Target: OOS10, OOS11, OOS12, LOS20
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
