@@ -47,7 +47,6 @@ jobs:
       id: get_version
       run: |
         cd kernel/KernelSU
-        git fetch --unshallow
         git pull
         git rev-list --count HEAD
         echo "VERSION=$(expr $(git rev-list --count HEAD) + 10200)" >> $GITHUB_OUTPUT
