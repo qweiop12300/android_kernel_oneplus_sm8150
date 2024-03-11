@@ -159,10 +159,10 @@ jobs:
           OP7-OOS11-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip
           OP7-OOS12-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip
           OP7-LOS20-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip
-        name: OnePlus7_kernelsu-${{ github.run_id }}
-        tag_name: ${{ github.run_id }}
+        name: OnePlus7_kernelsu-${{ steps.get_version.outputs.VERSION }}
+        tag_name: ${{ steps.get_version.outputs.VERSION }}
         body: |
-          Device: Oneplus 7
+          Device: Oneplus 7/Oneplus 7Pro/Oneplus 7T/Oneplus 7TPro
           Target: OOS10, OOS11, OOS12, LOS20
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
