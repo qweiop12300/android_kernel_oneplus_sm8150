@@ -70,8 +70,9 @@ jobs:
        cd ..
     - name: Create AK3 zip for android 10
       run: |
-       zip OP7-OOS10-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip AnyKernel3/*
-       
+       cd AnyKernel3
+       zip -r ../OP7-OOS10-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip *
+       cd ..
     - name: Checkout Android 11 kernel source
       run: |
         rm -rf kernel
@@ -96,8 +97,9 @@ jobs:
        cd ..
     - name: Create AK3 zip for android 11
       run: |
-       zip OP7-OOS11-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip AnyKernel3/*
-
+       cd AnyKernel3
+       zip -r ../OP7-OOS11-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip *
+       cd ..
     - name: Checkout Android 12 kernel source
       run: |
         rm -rf kernel
@@ -122,8 +124,9 @@ jobs:
        cd ..
     - name: Create AK3 zip for android 12
       run: |
-       zip OP7-OOS12-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip AnyKernel3/*
-
+       cd AnyKernel3
+       zip -r ../OP7-OOS12-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip *
+       cd ..
     - name: Checkout Android 13 kernel source
       run: |
         rm -rf kernel
@@ -148,7 +151,9 @@ jobs:
        cd ..
     - name: Create AK3 zip for android 13
       run: |
-       zip OP7-LOS20-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip AnyKernel3/*
+       cd AnyKernel3
+       zip -r ../OP7-LOS20-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip *
+       cd ..
     - name: Upload Kernel-SU 13
       uses: actions/upload-artifact@v4
       with:
@@ -178,7 +183,9 @@ jobs:
        cd ..
     - name: Create AK3 zip for android 14
       run: |
-       zip OP7-LOS21-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip AnyKernel3/*
+       cd AnyKernel3
+       zip -r ../OP7-LOS21-kernel-SU-${{ steps.get_version.outputs.VERSION }}.zip *
+       cd ..
     - name: Upload Kernel-SU 14
       uses: actions/upload-artifact@v4
       with:
